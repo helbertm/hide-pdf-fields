@@ -38,7 +38,7 @@ As tarjas substituem pixels pela cor sólida escolhida: Preto (padrão), Vermelh
 
 A saída perde texto selecionável/pesquisável e não conserva assinaturas digitais do original. OCR posterior pode ler o que ficou visível, mas não recupera os pixels substituídos.
 
-Confira cada saída ampliada antes de compartilhar. Âncoras com tolerância de 0,25 ponto limitam os layouts aceitos, mas não provam que um valor longo não extrapolou sua célula. Mudanças no modelo exigem ajuste do perfil. O pedido pressupõe observações após o fechamento identificado e uma margem de 4 pontos. Quando a observação selecionada ocupa a área do aviso, ela é removida até o fim da primeira página e o aviso é colocado sobre essa tarja. Se o pedido tiver páginas extras e as observações estiverem desmarcadas, o arquivo é recusado para não descartar conteúdo que se pediu para manter.
+Confira cada saída ampliada antes de compartilhar. Âncoras com tolerância de 0,25 ponto para pedidos e 0,6 ponto para notas fiscais limitam os layouts aceitos, mas não provam que um valor longo não extrapolou sua célula. Mudanças no modelo exigem ajuste do perfil. O pedido pressupõe observações após o fechamento identificado e uma margem de 4 pontos. Quando a observação selecionada ocupa a área do aviso, ela é removida até o fim da primeira página e o aviso é colocado sobre essa tarja. Se o pedido tiver páginas extras e as observações estiverem desmarcadas, o arquivo é recusado para não descartar conteúdo que se pediu para manter.
 
 Previews ficam em memória. O resultado exibido vem do arquivo salvo e tem seu hash conferido. Parar/fechar durante um lote permite terminar o arquivo atual e cancela os seguintes.
 

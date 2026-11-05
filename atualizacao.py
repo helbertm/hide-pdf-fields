@@ -7,7 +7,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-VERSAO = '1.3.1'
+VERSAO = '1.3.2'
 API = 'https://api.github.com/repos/helbertm/hide-pdf-fields/releases/latest'
 ARQUIVOS = {'hide-pdf-fields-windows.zip': 10_485_760, 'install.ps1': 1_048_576}
 HEADERS = {'User-Agent': 'hide-pdf-fields-updater', 'Accept': 'application/vnd.github+json'}

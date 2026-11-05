@@ -89,6 +89,38 @@ NOTA = [
 ]
 
 
+# Elementos gráficos estruturais observados nas bordas das células da nota.
+# Apenas retângulos simples nestas posições podem cruzar uma região sensível.
+NOTA_BORDAS = {
+    'autenticidade': [
+        ('s',(29.44,65.13,579.83,166.16)),
+        ('f',(391.54,83.85,392.25,165.10)), ('f',(392.25,83.85,392.95,165.10)),
+        ('f',(392.25,144.61,491.16,145.32)), ('f',(392.95,144.61,491.16,145.32)),
+        ('f',(491.16,83.85,491.87,165.10)),
+    ],
+    'tomador_completo': [
+        ('f',(29.09,320.54,580.18,321.25)), ('f',(579.48,227.28,580.18,321.25)),
+        ('f',(29.09,227.28,579.48,243.53)), ('f',(578.77,227.28,579.48,243.53)),
+        ('f',(29.09,227.28,29.79,243.53)), ('f',(29.09,243.53,579.48,244.23)),
+        ('f',(29.09,243.53,29.79,320.54)),
+    ],
+    'chave_nacional': [
+        ('f',(29.09,645.54,580.18,646.25)), ('f',(579.48,581.96,580.18,646.25)),
+        ('f',(29.09,584.08,579.48,600.33)), ('f',(29.09,584.08,29.79,600.33)),
+        ('f',(29.09,600.33,579.48,601.03)), ('f',(29.09,600.33,29.79,645.54)),
+    ],
+}
+
+
+def borda_estrutural(name, drawing):
+    items = drawing['items']
+    if len(items) != 1 or items[0][0] != 're':
+        return False
+    actual = drawing['rect']
+    return any(drawing['type'] == typ and all(abs(a-b) <= 0.25 for a,b in zip(actual,expected))
+               for typ,expected in NOTA_BORDAS[name])
+
+
 def anchor(page, text, count=1):
     found = sorted(page.search_for(text), key=lambda r: (r.y0, r.x0))
     if len(found) != count:
@@ -96,12 +128,12 @@ def anchor(page, text, count=1):
     return found
 
 
-def validate_anchors(page, specs):
+def validate_anchors(page, specs, tolerance=0.25):
     for text, count, x, y in specs:
         found = anchor(page, text, count)
         for i, r in enumerate(found):
             expected_y = y + i * 56.7  # linhas equivalentes matriz/filial
-            if abs(r.x0 - x) > 0.25 or abs(r.y0 - expected_y) > 0.25:
+            if abs(r.x0 - x) > tolerance or abs(r.y0 - expected_y) > tolerance:
                 raise Recusado(f'Posição inesperada de {text!r}. Revise o modelo.')
 
 
@@ -129,7 +161,8 @@ def plan(doc, requested='auto'):
         raise Recusado('Notas fiscais com mais de uma página não são suportadas.')
     if requested not in ('auto', kind):
         raise Recusado('Tipo solicitado não corresponde ao documento.')
-    validate_anchors(p, PEDIDO if kind == 'pedido' else NOTA)
+    # A nota admite variações subponto em todas as âncoras; o pedido mantém o perfil existente.
+    validate_anchors(p, PEDIDO if kind == 'pedido' else NOTA, tolerance=0.25 if kind == 'pedido' else 0.6)
     tail = None
     if kind == 'pedido':
         masks = [('gestora', (465, 28.4, 566.8, 40.3)),
@@ -166,6 +199,42 @@ def plan(doc, requested='auto'):
                  ('qr_code', (492,83,579,166)),
                  ('tomador_completo', (30,243,579,322)),
                  ('chave_nacional', (30,600,579,646))]
+        # As áreas textuais sensíveis devem caber integralmente nas máscaras.
+        # Uma pequena margem detecta dados que estejam escapando das bordas.
+        auth_label = anchor(p, 'Cód. de Autenticidade')[0]
+        words = [pdf.Rect(word[:4]) for word in p.get_text('words')]
+        images = [pdf.Rect(image['bbox']) for image in p.get_image_info()]
+        drawings = p.get_drawings()
+        paint_log = p.get_bboxlog()
+        painted_text = [pdf.Rect(item[1]) for item in paint_log if item[0] in ('fill-text','stroke-text')]
+        for name, coords in masks:
+            if name == 'qr_code':
+                continue
+            target = pdf.Rect(coords)
+            guard = (pdf.Rect(390,132,495,145) if name == 'autenticidade'
+                     else target + (-0.6,-0.6,0.6,0.6))
+            for bounds in words:
+                if name == 'autenticidade' and auth_label.contains(bounds):
+                    continue
+                if bounds.intersects(guard) and not target.contains(bounds):
+                    raise Recusado(f'Conteúdo de {name} fora da região suportada.')
+            for bounds in painted_text:
+                if bounds.intersects(guard) and not target.contains(bounds):
+                    raise Recusado(f'Texto pintado de {name} fora da região suportada.')
+            for bounds in images:
+                if bounds.intersects(guard) and not target.contains(bounds):
+                    raise Recusado(f'Imagem de {name} fora da região suportada.')
+            for drawing in drawings:
+                bounds = pdf.Rect(drawing['rect'])
+                indices = [drawing['seqno']]
+                if drawing['type'] == 'fs':
+                    indices.append(drawing['seqno'] + 1)
+                for index in indices:
+                    if index >= len(paint_log) or paint_log[index][0] not in ('fill-path','stroke-path'):
+                        raise Recusado('Não foi possível verificar os limites gráficos da nota.')
+                    bounds |= pdf.Rect(paint_log[index][1])
+                if bounds.intersects(guard) and not target.contains(bounds) and not borda_estrutural(name,drawing):
+                    raise Recusado(f'Gráfico de {name} fora da região suportada.')
         qr = [i for i in p.get_image_info() if pdf.Rect(i['bbox']).intersects(pdf.Rect(492,83,579,166))]
         if len(qr) != 1 or not pdf.Rect(492,83,579,166).contains(pdf.Rect(qr[0]['bbox'])):
             raise Recusado('Imagem do QR code ausente ou fora da região esperada.')

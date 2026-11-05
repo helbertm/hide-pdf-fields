@@ -6,7 +6,7 @@ import pymupdf as pdf
 from tarjar import PEDIDO, NOTA, Recusado, plan, redact, pixel_box
 
 
-def fixture(path, kind='pedido', observation=True):
+def fixture(path, kind='pedido', observation=True, auth_offset=0, note_shift=(0,0)):
     d = pdf.open()
     p = d.new_page(width=595, height=842)
     font = pdf.Font('helv')
@@ -14,7 +14,7 @@ def fixture(path, kind='pedido', observation=True):
         p.insert_text((x,y+font.ascender*size), s, fontsize=size)
     for label, count, x, y in PEDIDO if kind == 'pedido' else NOTA:
         for i in range(count):
-            text(x,y+i*56.7,label)
+            text(x+(auth_offset if label == 'Cód. de Autenticidade' else 0)+(note_shift[0] if kind == 'nota' else 0),y+i*56.7+(note_shift[1] if kind == 'nota' else 0),label,size=5.2 if label == 'Cód. de Autenticidade' else 8)
     if kind == 'pedido':
         text(272.8,296.1,'PAGAMENTO')
         text(357.3,511.3,'VALOR TOTAL DO PEDIDO:')
@@ -29,6 +29,7 @@ def fixture(path, kind='pedido', observation=True):
         pix.clear_with(0)
         p.insert_image(pdf.Rect(503,89,574,160), pixmap=pix)
         text(100,250,'CLIENTE CONFIDENCIAL')
+        text(415.4,132.8,'CODIGOSIGILOSO',6)
     d.set_metadata({'author':'AUTOR PRIVADO'})
     d.embfile_add('segredo.txt', b'ANEXO PRIVADO')
     d.save(path)
@@ -75,6 +76,74 @@ class TarjasTest(unittest.TestCase):
     def test_nota(self):
         fixture(self.src,'nota')
         self.assertEqual(redact(self.src,self.out)['tipo'],'nota')
+
+    def test_nota_rotulo_autenticidade_variacao_pequena(self):
+        fixture(self.src,'nota',auth_offset=0.35)
+        self.assertEqual(redact(self.src,self.out,dpi=200)['tipo'],'nota')
+        with pdf.open(self.out) as d:
+            pix=pdf.Pixmap(d,d[0].get_images()[0][0])
+            self.assertEqual(pix.pixel(int(420*200/72),int(137*200/72)),(0,0,0))
+
+    def test_nota_rotulo_autenticidade_deslocamento_excessivo(self):
+        fixture(self.src,'nota',auth_offset=0.8)
+        with self.assertRaises(Recusado):redact(self.src,self.out)
+        self.assertFalse(self.out.exists())
+
+    def test_nota_ancoras_aceitam_variacao_subponto(self):
+        for n,shift in enumerate(((0.4,0.4),(-0.4,-0.4))):
+            with self.subTest(shift=shift):
+                fixture(self.src,'nota',note_shift=shift)
+                self.assertEqual(redact(self.src,self.root/f'out_{n}.pdf',dpi=200)['tipo'],'nota')
+
+    def test_nota_ancoras_rejeitam_variacao_maior(self):
+        fixture(self.src,'nota',note_shift=(0.8,0.0))
+        with self.assertRaises(Recusado):redact(self.src,self.out)
+        self.assertFalse(self.out.exists())
+
+    def test_nota_tomador_extrapolando_tarja_recusado(self):
+        fixture(self.src,'nota')
+        self.mutate(lambda d:d[0].insert_text((575,290),'DADO',fontsize=7))
+        with self.assertRaises(Recusado):redact(self.src,self.out)
+        self.assertFalse(self.out.exists())
+
+    def test_nota_autenticidade_fora_da_tarja_recusada(self):
+        fixture(self.src,'nota',auth_offset=0.35)
+        self.mutate(lambda d:d[0].insert_text((485,140),'VALORLONGO',fontsize=7))
+        with self.assertRaises(Recusado):redact(self.src,self.out)
+        self.assertFalse(self.out.exists())
+
+    def test_nota_imagem_na_borda_da_tarja_recusada(self):
+        fixture(self.src,'nota')
+        def add(d):
+            pix=pdf.Pixmap(pdf.csRGB,pdf.IRect(0,0,20,20),False);pix.clear_with(0)
+            d[0].insert_image(pdf.Rect(393.6,134,410,140),pixmap=pix,keep_proportion=False)
+        self.mutate(add)
+        with self.assertRaises(Recusado):redact(self.src,self.out,cor='branco',dpi=400)
+        self.assertFalse(self.out.exists())
+
+    def test_nota_vetor_na_borda_da_tarja_recusado(self):
+        fixture(self.src,'nota')
+        self.mutate(lambda d:d[0].draw_rect(pdf.Rect(393.6,134,410,140),fill=(0,0,0)))
+        with self.assertRaises(Recusado):redact(self.src,self.out,cor='branco',dpi=400)
+        self.assertFalse(self.out.exists())
+
+    def test_nota_traco_na_borda_da_tarja_recusado(self):
+        fixture(self.src,'nota')
+        self.mutate(lambda d:d[0].draw_line((393.5,137),(405,137),color=(0,0,0),width=0.5))
+        with self.assertRaises(Recusado):redact(self.src,self.out,cor='branco',dpi=400)
+        self.assertFalse(self.out.exists())
+
+    def test_nota_texto_contornado_na_borda_recusado(self):
+        fixture(self.src,'nota')
+        self.mutate(lambda d:d[0].insert_text((394.1,140),'I',fontsize=6,render_mode=1,border_width=2,color=(0,0,0)))
+        with self.assertRaises(Recusado):redact(self.src,self.out,cor='branco',dpi=400)
+        self.assertFalse(self.out.exists())
+
+    def test_nota_uniao_miter_na_borda_recusada(self):
+        fixture(self.src,'nota')
+        self.mutate(lambda d:d[0].draw_polyline([(394.4,137),(400,135.9),(400,138.1)],color=(0,0,0),width=0.4,closePath=True,lineJoin=0))
+        with self.assertRaises(Recusado):redact(self.src,self.out,cor='branco',dpi=400)
+        self.assertFalse(self.out.exists())
 
     def test_nao_sobrescreve(self):
         fixture(self.src)
