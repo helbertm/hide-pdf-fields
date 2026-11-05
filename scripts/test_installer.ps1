@@ -36,7 +36,7 @@ try {
     Assert-True (Test-Path (Join-Path $First '.venv\Scripts\pythonw.exe')) 'Pythonw missing.'
     $Desktop=[Environment]::GetFolderPath('DesktopDirectory')
     $Shortcut=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $Desktop 'Ocultar Dados.lnk'))
-    Assert-True ($Shortcut.TargetPath -eq (Join-Path $First '.venv\Scripts\pythonw.exe')) 'Shortcut target mismatch.'
+    Assert-True ((Get-CanonicalPath $Shortcut.TargetPath) -eq (Get-CanonicalPath (Join-Path $First '.venv\Scripts\pythonw.exe'))) 'Shortcut target mismatch.'
     Assert-True ($Shortcut.Arguments -eq ('"'+(Join-Path $First 'app\interface.py')+'"')) 'Shortcut arguments mismatch.'
     & (Join-Path $First '.venv\Scripts\python.exe') (Join-Path $First 'app\scripts\smoke.py')
     Assert-True ($LASTEXITCODE -eq 0) 'Installed runtime failed.'
@@ -50,7 +50,7 @@ try {
     $Link=Join-Path $Desktop 'Ocultar Dados.lnk'
     if (Test-Path -LiteralPath $Link) {
         $Owned=(New-Object -ComObject WScript.Shell).CreateShortcut($Link)
-        if ($Owned.TargetPath.StartsWith($Temp,[StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $Link }
+        if ((Get-CanonicalPath $Owned.TargetPath).StartsWith((Get-CanonicalPath $Temp) + '\',[StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $Link }
     }
     if ($OriginalLocal) { $env:LOCALAPPDATA=$OriginalLocal }
     # This test directory was created by the test itself.

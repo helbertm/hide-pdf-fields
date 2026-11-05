@@ -14,6 +14,21 @@ $PythonVersion = '3.14.10'
 $PythonInstallerSha256 = '92480239264744fe0386a1bd8275786fefa126e3129e56a68e22b52c73329965'
 $AllowedFiles = @('interface.py','tarjar.py','lote.py','requirements-win.lock','README.md','USO.md','THIRD_PARTY.md','scripts/smoke.py')
 
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class WindowsPaths {
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    public static extern uint GetLongPathName(string path, StringBuilder result, uint size);
+}
+'@
+function Get-CanonicalPath([string]$Path) {
+    $Buffer = New-Object System.Text.StringBuilder 32768
+    $Length = [WindowsPaths]::GetLongPathName([IO.Path]::GetFullPath($Path), $Buffer, $Buffer.Capacity)
+    if ($Length -eq 0 -or $Length -ge $Buffer.Capacity) { throw 'Nao foi possivel resolver o caminho da instalacao.' }
+    return $Buffer.ToString()
+}
 function Assert-Python([string]$Candidate) {
     if (-not $Candidate -or -not (Test-Path -LiteralPath $Candidate -PathType Leaf)) { return $false }
     try {
@@ -119,7 +134,7 @@ function Install-App {
         $Shell = New-Object -ComObject WScript.Shell
         if (Test-Path -LiteralPath $ShortcutPath) {
             $Existing = $Shell.CreateShortcut($ShortcutPath)
-            if (-not $Existing.TargetPath.StartsWith($AppRoot + '\',[StringComparison]::OrdinalIgnoreCase)) {
+            if (-not (Get-CanonicalPath $Existing.TargetPath).StartsWith((Get-CanonicalPath $AppRoot) + '\',[StringComparison]::OrdinalIgnoreCase)) {
                 throw 'Ja existe um atalho Ocultar Dados de outro aplicativo. Renomeie-o e tente novamente.'
             }
         }
