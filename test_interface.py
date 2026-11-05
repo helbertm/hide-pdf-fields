@@ -81,7 +81,15 @@ class InterfaceTest(unittest.TestCase):
         self.app.update_info={'version':'v9.0.0','assets':{}}
         self.app.update_queue.put(('checked',self.app.update_info))
         self.app.poll_update()
+        self.root.update_idletasks()
         self.assertIn('v9.0.0',self.app.update_button.cget('text'))
+        from atualizacao import VERSAO
+        self.assertEqual(self.app.version_label.cget('text'),f'Versão {VERSAO}')
+        self.assertTrue(self.app.version_label.winfo_ismapped())
+        self.assertTrue(self.app.update_button.winfo_ismapped())
+        self.root.geometry('900x650');self.root.update()
+        self.assertLessEqual(self.app.update_button.winfo_x()+self.app.update_button.winfo_width(),self.app.version_label.winfo_x())
+        self.assertLessEqual(self.app.version_label.winfo_x()+self.app.version_label.winfo_width(),self.app.version_label.master.winfo_width())
         self.app.running=True
         with patch('interface.messagebox.askyesno') as confirm:
             self.app.begin_update()

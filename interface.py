@@ -12,7 +12,7 @@ import subprocess
 import threading
 import shutil
 import copy
-from atualizacao import consultar, baixar
+from atualizacao import VERSAO, consultar, baixar
 try:
     import tkinter as tk
     from tkinter import ttk, filedialog, messagebox
@@ -167,12 +167,15 @@ class Aplicativo:
         self.summary_default_fg=self.summary_label.cget('foreground')
         update_row=ttk.Frame(footer)
         update_row.pack(fill='x',pady=(4,0))
+        update_row.columnconfigure(0,weight=1)
         self.update_button=ttk.Button(update_row,text='Atualização disponível',command=self.begin_update)
+        self.version_label=ttk.Label(update_row,text=f'Versão {VERSAO}')
+        self.version_label.grid(row=0,column=2,sticky='e',padx=(8,0))
         self.update_status=tk.StringVar(value='')
         self.update_detail=ttk.Frame(footer)
         self.update_progress=ttk.Progressbar(self.update_detail,mode='determinate',length=130,maximum=100)
         self.update_label=ttk.Label(self.update_detail,textvariable=self.update_status)
-        ttk.Label(update_row,text='Confira a visualização ampliada antes de compartilhar. A saída não terá texto selecionável.',wraplength=610).pack(side='left',fill='x',expand=True)
+        ttk.Label(update_row,text='Confira o resultado antes de compartilhar. O texto não será selecionável.',wraplength=500).grid(row=0,column=0,sticky='w')
 
         self._clear_previews('Selecione um arquivo.')
 
@@ -509,7 +512,7 @@ class Aplicativo:
                     if value:
                         self.update_info=value
                         self.update_button.configure(text='Atualizar para '+value['version'],state='disabled' if self.running or self.updating else 'normal')
-                        self.update_button.pack(side='right',padx=(8,0))
+                        self.update_button.grid(row=0,column=1,sticky='e',padx=(8,0))
                 elif event=='progress':self.update_progress.configure(value=value)
                 elif event=='failed':self.update_failed()
                 elif event=='downloaded':
