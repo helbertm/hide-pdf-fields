@@ -108,6 +108,8 @@ class InterfaceTest(unittest.TestCase):
 
     def test_lote_previews_resize_e_ampliacao(self):
         self.assertEqual(self.root.title(),'Ocultar Dados - Pedido Interno e NFe')
+        self.assertIsNotNone(self.app.window_icon)
+        self.assertEqual(self.app.window_icon.width(),512)
         self.assertEqual(self.app.run_button.cget('text'),'Processar')
         self.assertEqual(self.app.stop_button.cget('text'),'Interromper')
         self.assertEqual(self.app.color.get(),'Preto')

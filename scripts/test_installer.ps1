@@ -37,6 +37,7 @@ try {
     $Desktop=[Environment]::GetFolderPath('DesktopDirectory')
     $Shortcut=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $Desktop 'Ocultar Dados.lnk'))
     Assert-True ((Get-CanonicalPath $Shortcut.TargetPath) -eq (Get-CanonicalPath (Join-Path $First '.venv\Scripts\pythonw.exe'))) 'Shortcut target mismatch.'
+    Assert-True ((Get-CanonicalPath ($Shortcut.IconLocation -replace ',0$', '')) -eq (Get-CanonicalPath (Join-Path $First 'app\assets\icon.ico'))) 'Shortcut icon mismatch.'
     Assert-True ($Shortcut.Arguments -eq ('"'+(Join-Path $First 'app\interface.py')+'"')) 'Shortcut arguments mismatch.'
     & (Join-Path $First '.venv\Scripts\python.exe') (Join-Path $First 'app\scripts\smoke.py')
     Assert-True ($LASTEXITCODE -eq 0) 'Installed runtime failed.'

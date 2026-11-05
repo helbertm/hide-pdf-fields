@@ -12,7 +12,7 @@ Set-StrictMode -Version Latest
 $Repository = 'helbertm/hide-pdf-fields'
 $PythonVersion = '3.14.10'
 $PythonInstallerSha256 = '92480239264744fe0386a1bd8275786fefa126e3129e56a68e22b52c73329965'
-$AllowedFiles = @('interface.py','atualizacao.py','tarjar.py','lote.py','requirements-win.lock','README.md','USO.md','THIRD_PARTY.md','scripts/smoke.py')
+$AllowedFiles = @('assets/icon.png','assets/icon.ico','interface.py','atualizacao.py','tarjar.py','lote.py','requirements-win.lock','README.md','USO.md','THIRD_PARTY.md','scripts/smoke.py')
 
 Add-Type -TypeDefinition @'
 using System;
@@ -145,7 +145,7 @@ function Install-App {
         $Shortcut.Arguments = '"' + (Join-Path $AppPath 'interface.py') + '"'
         $Shortcut.WorkingDirectory = $AppPath
         $Shortcut.Description = 'Ocultar Dados - Pedido Interno e NFe'
-        $Shortcut.IconLocation = $Shortcut.TargetPath + ',0'
+        $Shortcut.IconLocation = (Join-Path $AppPath 'assets\icon.ico') + ',0'
         $Shortcut.Save()
         try {
             if (Test-Path -LiteralPath $ShortcutPath) {

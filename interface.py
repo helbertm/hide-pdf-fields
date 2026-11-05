@@ -30,6 +30,12 @@ class Aplicativo:
     def __init__(self, root):
         self.root = root
         root.title('Ocultar Dados - Pedido Interno e NFe')
+        try:
+            icon = tk.PhotoImage(master=root, file=str(Path(__file__).resolve().parent/'assets'/'icon.png'))
+            root.iconphoto(True, icon)
+            self.window_icon = icon
+        except (tk.TclError, OSError):
+            self.window_icon = None
         root.geometry('1120x860')
         root.minsize(900,650)
         self.pool = ProcessPoolExecutor(max_workers=1,mp_context=multiprocessing.get_context('spawn'))

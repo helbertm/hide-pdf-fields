@@ -6,7 +6,7 @@ Aplicativo local para ocultar campos de dois layouts de PDF: pedido interno e no
 
 Suporte: Windows 10/11 x64, PowerShell 5.1 ou superior, internet na instalação.
 
-Abra o **PowerShell** e cole o comando publicado na [release](https://github.com/helbertm/hide-pdf-fields/releases). Ele verifica os hashes do instalador e do pacote, prepara Python 3.14.10/Tcl-Tk e um ambiente isolado, instala as dependências fixadas e cria o atalho **Ocultar Dados** na Área de Trabalho. Não precisa instalar Git nem executar como administrador. Se necessário, o Python completo é obtido de python.org com versão e SHA-256 fixados, e sua assinatura Authenticode é verificada antes da instalação. Um Python 3.14 x64 compatível já instalado pode ser reutilizado. O ícone utilizado é o ícone nativo do Python.
+Abra o **PowerShell** e cole o comando publicado na [release](https://github.com/helbertm/hide-pdf-fields/releases). Ele verifica os hashes do instalador e do pacote, prepara Python 3.14.10/Tcl-Tk e um ambiente isolado, instala as dependências fixadas e cria o atalho **Ocultar Dados** na Área de Trabalho. Não precisa instalar Git nem executar como administrador. Se necessário, o Python completo é obtido de python.org com versão e SHA-256 fixados, e sua assinatura Authenticode é verificada antes da instalação. Um Python 3.14 x64 compatível já instalado pode ser reutilizado. O atalho e a janela usam o ícone do aplicativo.
 
 A instalação usa `%LOCALAPPDATA%\HidePdfFields`, não altera o PATH e não muda permanentemente a política de execução. Se a organização bloquear scripts ou instalações, o instalador respeita esse bloqueio.
 

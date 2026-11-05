@@ -6,6 +6,7 @@ __pycache__/
 /work/
 *.pdf
 *.png
+!/assets/icon.png
 *.jpg
 *.zip
 *.log
