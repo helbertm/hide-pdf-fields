@@ -11,7 +11,7 @@ try:
     from tkinter import ttk, filedialog, messagebox
 except ImportError:
     raise SystemExit('Tkinter indisponível. Instale Python com Tcl/Tk (python.org) ou o pacote python3-tk do sistema. O modo tarjar.py --pasta continua disponível.')
-from tarjar import validar_destinatario
+from tarjar import validar_destinatario, CORES
 from lote import Resultado, descobrir, processar_arquivo, comparar, Recusado, CAMPOS
 
 LABELS = {'aguardando':'Aguardando', 'processando':'Processando', 'concluido':'Concluído',
@@ -46,6 +46,8 @@ class Aplicativo:
         self.target = tk.StringVar()
         self.recipient = tk.StringVar()
         self.batch_recipient = None
+        self.color = tk.StringVar(value='Preto')
+        self.batch_color = 'preto'
         self.summary = tk.StringVar(value='Escolha as pastas e carregue os PDFs para começar.')
         self.detail = tk.StringVar(value='Selecione um arquivo para conferir.')
         self._build()
@@ -72,7 +74,12 @@ class Aplicativo:
             self.path_widgets.extend([entry,button])
         ttk.Label(folders,text='Destinatário').grid(row=2,column=0,sticky='w',padx=(0,12),pady=4)
         self.recipient_entry=ttk.Entry(folders,textvariable=self.recipient)
-        self.recipient_entry.grid(row=2,column=1,columnspan=2,sticky='ew',pady=4)
+        self.recipient_entry.grid(row=2,column=1,sticky='ew',pady=4)
+        color_frame=ttk.Frame(folders)
+        color_frame.grid(row=2,column=2,padx=(8,0),sticky='ew')
+        ttk.Label(color_frame,text='Cor das tarjas').pack(side='left',padx=(0,6))
+        self.color_combo=ttk.Combobox(color_frame,textvariable=self.color,values=[v[0] for v in CORES.values()],state='readonly',width=16)
+        self.color_combo.pack(side='left')
         self.path_widgets.append(self.recipient_entry)
         ttk.Label(folders,text='Nome da saída: Destinatario-ddmmyy-nome-original.pdf. Até 120 caracteres no destinatário.').grid(row=3,column=1,columnspan=2,sticky='w')
         ttk.Label(folders,text='Saída padrão: pasta de entrada (pode alterar). Somente PDFs, sem subpastas. Originais preservados.').grid(row=4,column=0,columnspan=3,sticky='w',pady=(4,0))
@@ -80,9 +87,9 @@ class Aplicativo:
         actions.grid(row=1,column=0,sticky='ew')
         self.load_button = ttk.Button(actions,text='Carregar PDFs',command=self.load)
         self.load_button.pack(side='left')
-        self.run_button = ttk.Button(actions,text='Aplicar tarjas',command=self.start,state='disabled')
+        self.run_button = ttk.Button(actions,text='Processar',command=self.start,state='disabled')
         self.run_button.pack(side='left',padx=8)
-        self.stop_button = ttk.Button(actions,text='Parar após arquivo atual',command=self.stop,state='disabled')
+        self.stop_button = ttk.Button(actions,text='Interromper',command=self.stop,state='disabled')
         self.stop_button.pack(side='left')
         self.progress = ttk.Progressbar(actions,mode='determinate',length=180)
         self.progress.pack(side='right',fill='x',expand=True,padx=(20,0))
@@ -98,7 +105,8 @@ class Aplicativo:
         bar.grid(row=0,column=1,sticky='ns')
         self.tree.configure(yscrollcommand=bar.set)
         self.tree.bind('<<TreeviewSelect>>',lambda e:self.selection())
-        ttk.Label(table,textvariable=self.detail,wraplength=820).grid(row=1,column=0,columnspan=2,sticky='w',pady=8)
+        self.detail_label=ttk.Label(table,textvariable=self.detail,wraplength=820)
+        self.detail_label.grid(row=1,column=0,columnspan=2,sticky='w',pady=8)
         preview = ttk.Frame(root,padding=(16,0))
         preview.grid(row=3,column=0,sticky='nsew')
         preview.columnconfigure(0,weight=0,minsize=285)
@@ -131,7 +139,10 @@ class Aplicativo:
         self.zoom_button.grid(row=4,column=0,pady=8)
         footer = ttk.Frame(root,padding=(16,0,16,12))
         footer.grid(row=5,column=0,sticky='ew')
-        ttk.Label(footer,textvariable=self.summary,wraplength=820).pack(anchor='w')
+        self.summary_label=tk.Label(footer,textvariable=self.summary,wraplength=820,anchor='w',justify='left',padx=8,pady=5)
+        self.summary_label.pack(anchor='w',fill='x')
+        self.summary_default_bg=self.summary_label.cget('background')
+        self.summary_default_fg=self.summary_label.cget('foreground')
         ttk.Label(footer,text='Confira a visualização ampliada antes de compartilhar. A saída não terá texto selecionável.').pack(anchor='w',pady=(4,0))
         self._clear_previews('Selecione um arquivo.')
 
@@ -148,6 +159,8 @@ class Aplicativo:
 
     def _paths_changed(self,*_):
         if self.running:return
+        self.summary_label.configure(background=self.summary_default_bg,foreground=self.summary_default_fg)
+        self.detail_label.configure(foreground='')
         self.jobs=[]
         self.choices={}
         self.detected=set()
@@ -170,6 +183,8 @@ class Aplicativo:
             messagebox.showerror('Não foi possível carregar',str(e) if isinstance(e,Recusado) else 'Verifique o acesso à pasta.',parent=self.root)
             return
         self.recipient_entry.configure(state='normal')
+        self.color_combo.configure(state='readonly')
+        self.summary_label.configure(background=self.summary_default_bg,foreground=self.summary_default_fg)
         self.output=output
         self.choices={}
         self.detected=set()
@@ -204,6 +219,7 @@ class Aplicativo:
             self.zoom_button.configure(state='disabled')
             return
         job=self.jobs[i]
+        self.detail_label.configure(foreground='#d32f2f' if job.status=='recusado' else '')
         self.detail.set(f'{Path(job.origem).name} — {LABELS[job.status]}. {job.mensagem}')
         self.zoom_button.configure(state='normal')
         self._show_fields()
@@ -317,6 +333,9 @@ class Aplicativo:
             self.pool.shutdown(wait=False,cancel_futures=True)
             self.pool=ProcessPoolExecutor(max_workers=1,mp_context=multiprocessing.get_context('spawn'))
             self.pool_broken=False
+        self.batch_color=next(key for key,(label,_) in CORES.items() if label==self.color.get())
+        self.color_combo.configure(state='disabled')
+        self.summary_label.configure(background=self.summary_default_bg,foreground=self.summary_default_fg)
         self.batch_time=datetime.now().astimezone()
         self.batch_choices={i:list(v) for i,v in self.choices.items()}
         self.running=True;self.stopping=False;self.index=0
@@ -329,7 +348,7 @@ class Aplicativo:
     def stop(self):
         self.stopping=True
         self.stop_button.configure(state='disabled')
-        self.summary.set('Parando após o arquivo atual. Os PDFs já concluídos serão mantidos.')
+        self.summary.set('Interrompendo após o arquivo atual. Os PDFs já concluídos serão mantidos.')
 
     def _update_row(self,i):
         job=self.jobs[i]
@@ -346,7 +365,7 @@ class Aplicativo:
         job.status='processando';self._update_row(self.index)
         self.summary.set(f'Processando {self.index+1} de {len(self.jobs)}: {Path(job.origem).name}')
         try:
-            self.active=(self.index,self.pool.submit(processar_arquivo,job.origem,str(self.output),campos=self.batch_choices.get(self.index),destinatario=self.batch_recipient,gerado_em=self.batch_time))
+            self.active=(self.index,self.pool.submit(processar_arquivo,job.origem,str(self.output),campos=self.batch_choices.get(self.index),destinatario=self.batch_recipient,gerado_em=self.batch_time,cor=self.batch_color))
         except Exception:
             job.status='falhou';job.mensagem='Processo indisponível. Recarregue o lote para tentar novamente.'
             self.pool_broken=True;self.stopping=True
@@ -361,7 +380,10 @@ class Aplicativo:
         for w in self.path_widgets:w.configure(state='normal')
         self.recipient_entry.configure(state='disabled')
         counts={s:sum(j.status==s for j in self.jobs) for s in ('concluido','recusado','falhou','cancelado','ignorado')}
-        self.summary.set(f"{counts['concluido']} concluído(s) · {counts['recusado']} recusado(s) · {counts['falhou']} falha(s) · {counts['cancelado']} cancelado(s) · {counts['ignorado']} ignorado(s). Recarregue para iniciar outro lote.")
+        attention=counts['recusado'] or counts['falhou'] or counts['cancelado'] or counts['ignorado']
+        title='Interrompido' if counts['cancelado'] else ('Finalizado com pendências' if attention else 'Processamento concluído')
+        self.summary_label.configure(background='#fff3cd' if attention else '#dff3e5',foreground='#664d03' if attention else '#14532d')
+        self.summary.set(f"{title} — {counts['concluido']} concluído(s) · {counts['recusado']} recusado(s) · {counts['falhou']} falha(s) · {counts['cancelado']} cancelado(s) · {counts['ignorado']} ignorado(s). Recarregue para iniciar outro lote.")
         self.selection()
 
     def poll(self):

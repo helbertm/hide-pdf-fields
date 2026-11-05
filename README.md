@@ -20,7 +20,7 @@ Para desinstalar, feche o aplicativo, remova o atalho **Ocultar Dados** e a past
 2. Selecione a pasta de entrada. A saída usa a mesma pasta por padrão e pode ser alterada.
 3. Informe o destinatário e clique **Carregar PDFs**.
 4. Selecione cada arquivo e desmarque os campos que deseja manter visíveis.
-5. Clique **Aplicar tarjas** e confira **Original / Resultado tarjado**, com ampliação quando necessário.
+5. Escolha a cor das tarjas (preto por padrão), clique **Processar** e confira **Original / Resultado tarjado**, com ampliação quando necessário.
 
 Todos os campos começam marcados. ZIP, documentos de texto e imagens não são aceitos. Arquivos existentes não são sobrescritos. Veja [uso, limites e campos](USO.md).
 

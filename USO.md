@@ -34,7 +34,7 @@ O destinatário mantém acentos no documento. Se a área estiver ocupada, a gera
 
 ## Remoção e conferência
 
-As tarjas substituem pixels por preto. Um PDF novo recebe somente a imagem já tarjada e o aviso; objetos do original, anexos, metadados e texto oculto não são copiados. A imagem incorporada é reextraída e comparada byte a byte; cada tarja deve permanecer preta. O original é preservado.
+As tarjas substituem pixels pela cor sólida escolhida: Preto (padrão), Vermelho escuro, Cinza escuro ou Branco. Branco também remove os dados efetivamente, sem manter conteúdo por baixo. A cor é comum ao lote e fica congelada durante o processamento. Um PDF novo recebe somente a imagem já tarjada e o aviso; objetos do original, anexos, metadados e texto oculto não são copiados. A imagem incorporada é reextraída e comparada byte a byte; cada tarja deve corresponder exatamente à cor escolhida. O original é preservado.
 
 A saída perde texto selecionável/pesquisável e não conserva assinaturas digitais do original. OCR posterior pode ler o que ficou visível, mas não recupera os pixels substituídos.
 
@@ -50,3 +50,5 @@ python tarjar.py "pedido.pdf" "nota.pdf" --saida "saida" --destinatario "Equipe 
 ```
 
 O argumento `--saida` é opcional. A seleção individual de campos está na interface. Chamadas diretas à API com `destinatario=None` omitem o aviso por compatibilidade; interface e CLI sempre exigem destinatário.
+
+Use **Processar** para iniciar e **Interromper** para parar após o arquivo atual. Ao concluir todos os arquivos, uma faixa verde informa o sucesso sem modal. Lotes com recusas, falhas ou interrupção mostram um resumo de atenção com contagens. O motivo do arquivo selecionado em **Recusado** aparece em vermelho.

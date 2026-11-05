@@ -52,7 +52,7 @@ def nome_saida(origem, destinatario, instante):
     return f'{slug}-{instante:%d%m%y}-{original}.pdf'
 
 
-def processar_arquivo(origem, pasta_saida, tipo='auto', dpi=300, campos=None, destinatario=None, gerado_em=None):
+def processar_arquivo(origem, pasta_saida, tipo='auto', dpi=300, campos=None, destinatario=None, gerado_em=None, cor='preto'):
     origem = Path(origem)
     try:
         instante = gerado_em if gerado_em is not None else datetime.now().astimezone()
@@ -62,7 +62,7 @@ def processar_arquivo(origem, pasta_saida, tipo='auto', dpi=300, campos=None, de
             raise Recusado('Entrada permitida apenas para arquivos PDF existentes.')
         # Vincula a futura conferência ao documento que realmente foi processado.
         before = hashlib.sha256(origem.read_bytes()).hexdigest()
-        info = redact(origem, destino, tipo, dpi, campos, destinatario, gerado_em=instante)
+        info = redact(origem, destino, tipo, dpi, campos, destinatario, gerado_em=instante,cor=cor)
         if hashlib.sha256(origem.read_bytes()).hexdigest() != before:
             return Resultado(str(origem), status='falhou', mensagem='A origem mudou durante o processamento; confira a pasta de saída.')
         mensagem = f"{len(info['regioes'])} grupo(s) ocultado(s); {len(info['mantidos'])} mantido(s) por escolha."
@@ -81,14 +81,14 @@ def processar_arquivo(origem, pasta_saida, tipo='auto', dpi=300, campos=None, de
 
 
 def processar_lote(arquivos, saida, tipo='auto', dpi=300,
-                    interromper: Callable[[], bool] = lambda: False, destinatario=None):
+                    interromper: Callable[[], bool] = lambda: False, destinatario=None, cor='preto'):
     """Iterador sequencial; cancelamento só entre arquivos."""
     instante = datetime.now().astimezone()
     for origem in list(arquivos):
         if interromper():
             yield Resultado(str(origem), status='cancelado', mensagem='Não iniciado por solicitação do usuário.')
         else:
-            yield processar_arquivo(origem, saida, tipo, dpi, destinatario=destinatario,gerado_em=instante)
+            yield processar_arquivo(origem, saida, tipo, dpi, destinatario=destinatario,gerado_em=instante,cor=cor)
 
 
 def _miniatura(path, largura, altura, expected_hash=''):

@@ -59,6 +59,15 @@ class InterfaceTest(unittest.TestCase):
         self.app.source.set(str(self.folder/'quarta'))
         self.assertEqual(self.app.target.get(),self.app.source.get())
 
+    def test_detalhe_recusado_vermelho_e_reset(self):
+        self.app.jobs[0].status='recusado'
+        self.app.jobs[0].mensagem='Saída já existe.'
+        self.app.selection()
+        self.assertEqual(str(self.app.detail_label.cget('foreground')),'#d32f2f')
+        self.assertIn('Recusado',self.app.detail.get())
+        self.app.tree.selection_set('1');self.app.selection()
+        self.assertEqual(str(self.app.detail_label.cget('foreground')),'')
+
     def test_nenhum_campo_desabilita_execucao(self):
         self.app._set_fields([])
         self.app.tree.selection_set('1');self.app.selection()
@@ -69,11 +78,19 @@ class InterfaceTest(unittest.TestCase):
 
     def test_lote_previews_resize_e_ampliacao(self):
         self.assertEqual(self.root.title(),'Ocultar Dados - Pedido Interno e NFe')
+        self.assertEqual(self.app.run_button.cget('text'),'Processar')
+        self.assertEqual(self.app.stop_button.cget('text'),'Interromper')
+        self.assertEqual(self.app.color.get(),'Preto')
+        self.app.color.set('Branco')
         self.app.start()
+        self.assertEqual(self.app.batch_color,'branco')
+        self.assertIn('disabled',self.app.color_combo.state())
         self.assertEqual(self.app.batch_recipient,'Equipe de teste')
         self.assertIn('disabled',self.app.recipient_entry.state())
         self.pump(lambda:not self.app.running)
         self.assertEqual([j.status for j in self.app.jobs],['concluido','concluido'])
+        self.assertIn('Processamento concluído',self.app.summary.get())
+        self.assertEqual(self.app.summary_label.cget('background'),'#dff3e5')
         self.pump(lambda:self.app.preview_future is None and self.app.preview_request is None)
         self.assertEqual(set(self.app.photos),{'antes','depois'})
         self.root.geometry('900x650')

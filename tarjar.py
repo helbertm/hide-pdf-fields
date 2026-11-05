@@ -21,6 +21,14 @@ class SemTarjas(Recusado):
     """Nenhuma região aplicável; não produzir cópia com nome tarjado."""
 
 
+CORES = {
+    'preto': ('Preto', (0, 0, 0)),
+    'vermelho_escuro': ('Vermelho escuro', (128, 0, 0)),
+    'cinza_escuro': ('Cinza escuro', (64, 64, 64)),
+    'branco': ('Branco', (255, 255, 255)),
+}
+
+
 CAMPOS = {
     'pedido': {
         'gestora': 'Nome da gestora',
@@ -172,7 +180,7 @@ def tail_mask(pix, start, dpi):
     return None
 
 
-def verify_output(path, expected_pix, masks, dpi):
+def verify_output(path, expected_pix, masks, dpi, cor_rgb=(0,0,0)):
     """Verifica estrutura e bytes RGB reextraídos, não apenas texto vazio."""
     with pdf.open(path) as d:
         if len(d) != 1 or d.embfile_count() or d.get_xml_metadata() or d.get_toc():
@@ -193,9 +201,9 @@ def verify_output(path, expected_pix, masks, dpi):
         samples = pix.samples_mv
         for _, rect in masks:
             box = pixel_box(rect, dpi, pix.width, pix.height)
-            black = bytes((box.x1-box.x0)*3)
+            filled = bytes(cor_rgb) * (box.x1-box.x0)
             for y in range(box.y0, box.y1):
-                if samples[y*pix.stride+box.x0*3:y*pix.stride+box.x1*3] != black:
+                if samples[y*pix.stride+box.x0*3:y*pix.stride+box.x1*3] != filled:
                     raise Recusado('Tarja não opaca na imagem extraída.')
 
 
@@ -245,7 +253,10 @@ def inserir_aviso(pix, tamanho, destinatario, dpi, instante):
         pix.copy(marca,marca.irect)
 
 
-def redact(source, destination, kind='auto', dpi=300, campos=None, destinatario=None, gerado_em=None):
+def redact(source, destination, kind='auto', dpi=300, campos=None, destinatario=None, gerado_em=None, cor='preto'):
+    if not isinstance(cor,str) or cor not in CORES:
+        raise Recusado('Cor de tarja inválida. Escolha uma das quatro opções disponíveis.')
+    rgb = CORES[cor][1]
     source, destination = Path(source), Path(destination)
     if source.suffix.lower() != '.pdf' or not source.is_file():
         raise Recusado('Entrada permitida apenas para arquivos PDF existentes. ZIP, documentos e imagens não são aceitos.')
@@ -274,7 +285,7 @@ def redact(source, destination, kind='auto', dpi=300, campos=None, destinatario=
         if destinatario is not None:
             verificar_area_aviso(pix,masks,dpi)
         for _, r in masks:
-            pix.set_rect(pixel_box(r, dpi, pix.width, pix.height), (0,0,0))
+            pix.set_rect(pixel_box(r, dpi, pix.width, pix.height), rgb)
         if destinatario is not None:
             inserir_aviso(pix,doc[0].rect,destinatario,dpi,gerado_em if gerado_em is not None else datetime.now().astimezone())
         with pdf.open() as out:
@@ -289,7 +300,7 @@ def redact(source, destination, kind='auto', dpi=300, campos=None, destinatario=
     try:
         with os.fdopen(fd, 'wb') as f:
             f.write(result)
-        verify_output(tmp, pix, masks, dpi)
+        verify_output(tmp, pix, masks, dpi, rgb)
         if source.read_bytes() != original:
             raise Recusado('O arquivo de entrada mudou durante o processamento.')
         os.link(tmp, destination)  # falha atomicamente se destino existir
@@ -307,6 +318,7 @@ def main(argv=None):
     parser.add_argument('--pasta', type=Path, help='Processar todos os PDFs diretamente nesta pasta')
     parser.add_argument('--saida', type=Path, help='Pasta de saída; por padrão usa a pasta de entrada. Nunca sobrescreve')
     parser.add_argument('--destinatario', required=True, help='Nome que aparecerá no aviso de uso exclusivo (até 120 caracteres)')
+    parser.add_argument('--cor', choices=list(CORES), default='preto', help='Cor sólida das tarjas')
     parser.add_argument('--tipo', choices=['auto','pedido','nota'], default='auto')
     parser.add_argument('--dpi', type=int, choices=[200,300,400], default=300)
     args = parser.parse_args(argv)
@@ -319,7 +331,7 @@ def main(argv=None):
         print(str(e) if isinstance(e,ErroLote) else 'Não foi possível acessar a pasta.', file=sys.stderr)
         return 1
     errors = 0
-    for i, result in enumerate(processar_lote(files,output,args.tipo,args.dpi,destinatario=args.destinatario),1):
+    for i, result in enumerate(processar_lote(files,output,args.tipo,args.dpi,destinatario=args.destinatario,cor=args.cor),1):
         if result.status == 'concluido':
             print(f'[{i}/{len(files)}] OK ({result.tipo}): {Path(result.destino).name}')
         else:
