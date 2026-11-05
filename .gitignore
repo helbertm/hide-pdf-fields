@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+/build/
+/dist/
+/work/
+*.pdf
+*.png
+*.jpg
+*.zip
+*.log
+/agent-state/*/reports/
+/burlemarx/
+/davinci/
+/angela-jobson/
+/linus-swartz/
