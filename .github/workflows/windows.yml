@@ -17,7 +17,7 @@ jobs:
           python-version: '3.14'
           architecture: x64
       - name: Install hash-locked dependencies
-        run: python -m pip install --require-hashes --only-binary=:all: -r requirements-win.lock
+        run: 'python -m pip install --require-hashes --only-binary=:all: -r requirements-win.lock'
       - name: Verify source and processing
         run: python scripts/verify.py
       - name: Native Tk tests
