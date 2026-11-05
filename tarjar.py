@@ -108,8 +108,8 @@ def validate_anchors(page, specs):
 def plan(doc, requested='auto'):
     if not doc.is_pdf or doc.needs_pass or doc.is_repaired:
         raise Recusado('Exige PDF íntegro e sem senha.')
-    if len(doc) != 1:
-        raise Recusado('Somente uma página é suportada; nenhuma página extra será ignorada.')
+    if len(doc) < 1:
+        raise Recusado('PDF sem páginas.')
     p = doc[0]
     if p.rotation or p.cropbox != p.mediabox or p.rect.x0 or p.rect.y0:
         raise Recusado('Rotação ou recorte de página não suportado.')
@@ -125,6 +125,8 @@ def plan(doc, requested='auto'):
     if len(candidates) != 1:
         raise Recusado('Modelo não identificado. PDFs digitalizados exigem outro fluxo; OCR não é usado.')
     kind = candidates[0]
+    if kind == 'nota' and len(doc) != 1:
+        raise Recusado('Notas fiscais com mais de uma página não são suportadas.')
     if requested not in ('auto', kind):
         raise Recusado('Tipo solicitado não corresponde ao documento.')
     validate_anchors(p, PEDIDO if kind == 'pedido' else NOTA)
@@ -144,14 +146,21 @@ def plan(doc, requested='auto'):
         if len(payments) != 1:
             raise Recusado('Cabeçalho PAGAMENTO ausente ou ambíguo.')
         payment = payments[0]
-        total = anchor(p, 'VALOR TOTAL DO PEDIDO:')[0]
-        billing = anchor(p, 'Faturamento na entrega?')[0]
-        if not (290 < payment.y0 < total.y0 < billing.y0 < 760):
-            raise Recusado('Estrutura de pagamento/rodapé incompatível.')
-        if abs(billing.y0-total.y0-17.2) > 3:
+        totals = p.search_for('VALOR TOTAL DO PEDIDO:')
+        billings = p.search_for('Faturamento na entrega?') + p.search_for('Faturamentos na entrega?')
+        if len(totals) > 1 or len(billings) > 1 or not (totals or billings):
+            raise Recusado('Fechamento do pedido ausente ou ambíguo na primeira página.')
+        total = totals[0] if totals else None
+        billing = billings[0] if billings else None
+        if (total and abs(total.x0-357.3)>1) or (billing and abs(billing.x0-36.9)>1):
+            raise Recusado('Posição inesperada do fechamento do pedido.')
+        for marker in (total, billing):
+            if marker and not (290 < payment.y0 < marker.y0 < 760):
+                raise Recusado('Estrutura de pagamento/rodapé incompatível.')
+        if total and billing and (billing.y0 <= total.y0 or abs(billing.y0-total.y0-17.2) > 3):
             raise Recusado('Rodapé do pedido fora do padrão.')
-        # Tudo após a linha de faturamento é observação, mesmo sem título.
-        tail = billing.y1 + 4
+        # O conteúdo depois do fechamento é tratado como observação.
+        tail = (billing or total).y1 + 4
     else:
         masks = [('autenticidade', (394,132,491.5,144.8)),
                  ('qr_code', (492,83,579,166)),
@@ -180,7 +189,7 @@ def tail_mask(pix, start, dpi):
     return None
 
 
-def verify_output(path, expected_pix, masks, dpi, cor_rgb=(0,0,0)):
+def verify_output(path, expected_pix, masks, dpi, cor_rgb=(0,0,0), aviso_sobre_tarja=False, area_aviso=None):
     """Verifica estrutura e bytes RGB reextraídos, não apenas texto vazio."""
     with pdf.open(path) as d:
         if len(d) != 1 or d.embfile_count() or d.get_xml_metadata() or d.get_toc():
@@ -199,12 +208,17 @@ def verify_output(path, expected_pix, masks, dpi, cor_rgb=(0,0,0)):
         if hashlib.sha256(pix.samples).digest() != hashlib.sha256(expected_pix.samples).digest():
             raise Recusado('Pixels do PDF diferem dos pixels já tarjados.')
         samples = pix.samples_mv
-        for _, rect in masks:
+        for name, rect in masks:
             box = pixel_box(rect, dpi, pix.width, pix.height)
-            filled = bytes(cor_rgb) * (box.x1-box.x0)
             for y in range(box.y0, box.y1):
-                if samples[y*pix.stride+box.x0*3:y*pix.stride+box.x1*3] != filled:
-                    raise Recusado('Tarja não opaca na imagem extraída.')
+                row_start=y*pix.stride
+                excluded = pixel_box(area_aviso or AREA_AVISO,dpi,pix.width,pix.height) if aviso_sobre_tarja and name == 'observacoes_finais' else None
+                segments = [(box.x0,box.x1)]
+                if excluded and excluded.y0 <= y < excluded.y1:
+                    segments = [(box.x0,min(box.x1,excluded.x0)),(max(box.x0,excluded.x1),box.x1)]
+                for left,right in segments:
+                    if left < right and samples[row_start+left*3:row_start+right*3] != bytes(cor_rgb)*(right-left):
+                        raise Recusado('Tarja não opaca na imagem extraída.')
 
 
 AREA_AVISO = pdf.Rect(30, 770, 565, 818)
@@ -238,18 +252,21 @@ def verificar_area_aviso(pix, masks, dpi):
             raise Recusado('Sem área branca livre no rodapé para o aviso. Nenhum PDF foi gerado.')
 
 
-def inserir_aviso(pix, tamanho, destinatario, dpi, instante):
+def inserir_aviso(pix, tamanho, destinatario, dpi, instante, fundo=None, area=None):
     # Superfície nova: contém somente o texto intencional do aviso.
+    area = area or AREA_AVISO
     with pdf.open() as aviso:
         page = aviso.new_page(width=tamanho.width,height=tamanho.height)
         font = pdf.Font('helv')
+        if fundo is not None:
+            page.draw_rect(page.rect, color=None, fill=tuple(c/255 for c in fundo))
         page.insert_font(fontname='Aviso',fontbuffer=font.buffer)
-        caixa = AREA_AVISO + (3,3,-3,-3)
+        caixa = area + (3,3,-3,-3)
         restante = page.insert_textbox(caixa,texto_aviso(destinatario,instante),
-                                      fontname='Aviso',fontsize=7,color=(0.47,0.47,0.47),lineheight=1.3)
+                                      fontname='Aviso',fontsize=7,color=((0.75,0.75,0.75) if fundo is not None and fundo != (255,255,255) else (0.47,0.47,0.47)),lineheight=1.3)
         if restante < 0:
             raise Recusado('O aviso não cabe na área reservada. Abrevie o destinatário.')
-        marca = page.get_pixmap(dpi=dpi,colorspace=pdf.csRGB,alpha=False,clip=AREA_AVISO)
+        marca = page.get_pixmap(dpi=dpi,colorspace=pdf.csRGB,alpha=False,clip=area)
         pix.copy(marca,marca.irect)
 
 
@@ -269,25 +286,46 @@ def redact(source, destination, kind='auto', dpi=300, campos=None, destinatario=
     original = source.read_bytes()
     with pdf.open(stream=original, filetype='pdf') as doc:
         detected, masks, tail = plan(doc, kind)
+        paginas_descartadas = len(doc)-1
         escolhidos = selecionar_campos(detected, campos)
         if not escolhidos:
             raise SemTarjas('Nenhum campo selecionado; arquivo ignorado, sem gerar PDF.')
+        if len(doc)>1 and detected == 'pedido' and 'observacoes_finais' not in escolhidos:
+            raise Recusado('Pedido com várias páginas: selecione Observações finais para descartar as páginas seguintes.')
         pix = doc[0].get_pixmap(dpi=dpi, colorspace=pdf.csRGB, alpha=False, annots=False)
         if tail is not None:
             r = tail_mask(pix, tail, dpi)
+            if len(doc)>1 and 'observacoes_finais' in escolhidos:
+                r = pdf.Rect(0,tail,doc[0].rect.x1,doc[0].rect.y1)
             if r:
+                if len(doc)>1 or r.intersects(AREA_AVISO):
+                    r.y1 = doc[0].rect.y1
                 masks.append(('observacoes_finais', r))
         presentes = {name for name, _ in masks}
         ausentes = [name for name in escolhidos if name not in presentes]
         masks = [(name, r) for name, r in masks if name in escolhidos]
         if not masks:
             raise SemTarjas('Observações finais não encontradas; nenhuma tarja aplicável, sem gerar PDF.')
-        if destinatario is not None:
+        area_aviso = pdf.Rect(AREA_AVISO)
+        obs = next((r for name,r in masks if name == 'observacoes_finais'), None)
+        if obs and obs.intersects(area_aviso) and not obs.contains(area_aviso):
+            top = max(area_aviso.y0, obs.y0 + 1)
+            area_aviso = pdf.Rect(area_aviso.x0, top, area_aviso.x1, top + AREA_AVISO.height)
+        aviso_sobre_tarja = destinatario is not None and obs is not None and obs.contains(area_aviso)
+        if destinatario is not None and not doc[0].rect.contains(area_aviso):
+            raise Recusado('Sem área suficiente para o aviso. Nenhum PDF foi gerado.')
+        if destinatario is not None and not aviso_sobre_tarja:
             verificar_area_aviso(pix,masks,dpi)
         for _, r in masks:
             pix.set_rect(pixel_box(r, dpi, pix.width, pix.height), rgb)
+        # Comprove a remoção antes de compor qualquer texto sobre a tarja.
+        for _, r in masks:
+            box = pixel_box(r,dpi,pix.width,pix.height)
+            for y in range(box.y0,box.y1):
+                if pix.samples_mv[y*pix.stride+box.x0*3:y*pix.stride+box.x1*3] != bytes(rgb)*(box.x1-box.x0):
+                    raise Recusado('Falha na remoção dos pixels protegidos.')
         if destinatario is not None:
-            inserir_aviso(pix,doc[0].rect,destinatario,dpi,gerado_em if gerado_em is not None else datetime.now().astimezone())
+            inserir_aviso(pix,doc[0].rect,destinatario,dpi,gerado_em if gerado_em is not None else datetime.now().astimezone(),fundo=rgb if aviso_sobre_tarja else None,area=area_aviso)
         with pdf.open() as out:
             page = out.new_page(width=doc[0].rect.width, height=doc[0].rect.height)
             page.insert_image(page.rect, pixmap=pix)
@@ -300,7 +338,7 @@ def redact(source, destination, kind='auto', dpi=300, campos=None, destinatario=
     try:
         with os.fdopen(fd, 'wb') as f:
             f.write(result)
-        verify_output(tmp, pix, masks, dpi, rgb)
+        verify_output(tmp, pix, masks, dpi, rgb, aviso_sobre_tarja, area_aviso)
         if source.read_bytes() != original:
             raise Recusado('O arquivo de entrada mudou durante o processamento.')
         os.link(tmp, destination)  # falha atomicamente se destino existir
@@ -309,7 +347,7 @@ def redact(source, destination, kind='auto', dpi=300, campos=None, destinatario=
     return {'tipo': detected, 'regioes': [name for name, _ in masks],
             'selecionados': escolhidos, 'ausentes': ausentes,
             'mantidos': [c for c in CAMPOS[detected] if c not in escolhidos],
-            'dpi': dpi, 'sha256_saida': hashlib.sha256(result).hexdigest()}
+            'paginas_descartadas': paginas_descartadas, 'dpi': dpi, 'sha256_saida': hashlib.sha256(result).hexdigest()}
 
 
 def main(argv=None):

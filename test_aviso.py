@@ -39,7 +39,7 @@ class AvisoTest(unittest.TestCase):
                 d[0].insert_text((40,790),'CONTEUDO QUE NAO PODE SER APAGADO')
                 data=d.tobytes()
             src.write_bytes(data)
-            with self.assertRaises(Recusado):redact(src,out,destinatario='Equipe')
+            with self.assertRaises(Recusado):redact(src,out,destinatario='Equipe',campos=['gestora'])
             self.assertFalse(out.exists())
 
     def test_pdf_final_preserva_tarjas_e_area_externa(self):

@@ -86,8 +86,9 @@ class TarjasTest(unittest.TestCase):
     def test_pagina_extra(self):
         fixture(self.src)
         self.mutate(lambda d:d.new_page())
-        with self.assertRaises(Recusado): redact(self.src,self.out)
-        self.assertFalse(self.out.exists())
+        result = redact(self.src,self.out)
+        self.assertEqual(result['paginas_descartadas'],1)
+        with pdf.open(self.out) as out:self.assertEqual(len(out),1)
 
     def test_rotacao(self):
         fixture(self.src)

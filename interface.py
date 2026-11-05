@@ -44,6 +44,7 @@ class Aplicativo:
         self.batch_choices = {}
         self.field_vars = {}
         self.detected = set()
+        self.page_counts = {}
         self.resize_after = None
         self.pool_broken = False
         self.running = False
@@ -149,8 +150,9 @@ class Aplicativo:
         self.fields_summary=tk.StringVar(value='Selecione um documento.')
         ttk.Label(fields,textvariable=self.fields_summary,wraplength=270).grid(row=3,column=0,sticky='w',pady=8)
         self.canvases = {}
+        self.original_title = tk.StringVar(value='Original')
         for col,(side,title) in enumerate([('antes','Original'),('depois','Resultado tarjado')],1):
-            ttk.Label(preview,text=title,font=('TkDefaultFont',11,'bold')).grid(row=0,column=col,sticky='w',pady=(0,4))
+            ttk.Label(preview,textvariable=self.original_title if side=='antes' else None,text=title,font=('TkDefaultFont',11,'bold')).grid(row=0,column=col,sticky='w',pady=(0,4))
             canvas = tk.Canvas(preview,background='#e9ecef',highlightthickness=1,highlightbackground='#b9bec4')
             canvas.grid(row=1,column=col,sticky='nsew',padx=(0,6) if col==1 else (6,0))
             self.canvases[side]=canvas
@@ -192,6 +194,7 @@ class Aplicativo:
         self.jobs=[]
         self.choices={}
         self.detected=set()
+        self.page_counts={}
         self._show_fields()
         for item in self.tree.get_children():self.tree.delete(item)
         self.preview_token+=1
@@ -216,6 +219,7 @@ class Aplicativo:
         self.output=output
         self.choices={}
         self.detected=set()
+        self.page_counts={}
         self.jobs=[Resultado(str(p)) for p in files]
         self.preview_token+=1
         self.preview_request=None
@@ -247,6 +251,7 @@ class Aplicativo:
             self.zoom_button.configure(state='disabled')
             return
         job=self.jobs[i]
+        self.original_title.set('Original')
         self.detail_label.configure(foreground='#d32f2f' if job.status=='recusado' else '')
         self.detail.set(f'{Path(job.origem).name} — {LABELS[job.status]}. {job.mensagem}')
         self.zoom_button.configure(state='normal')
@@ -274,6 +279,8 @@ class Aplicativo:
         for key,label in CAMPOS[job.tipo].items():
             var=tk.BooleanVar(value=key in chosen)
             self.field_vars[key]=var
+            if key=='observacoes_finais' and self.page_counts.get(i,1)>1:
+                label='Observações finais e páginas\nseguintes (serão descartadas)'
             ttk.Checkbutton(self.fields_frame,text=label.replace(' (','\n('),variable=var,command=self._fields_changed,state='normal' if editable else 'disabled').pack(anchor='w',pady=3)
         self._field_summary()
 
@@ -334,7 +341,10 @@ class Aplicativo:
         notebook=ttk.Notebook(window)
         notebook.pack(fill='both',expand=True)
         window.photos=[]
-        for side,title in [('antes','Original'),('depois','Resultado tarjado')]:
+        page_count=previews.get('paginas_origem',1)
+        before_title=f'Original — página 1 de {page_count}' if page_count>1 else 'Original'
+        after_title='Resultado — 1 página' if page_count>1 else 'Resultado tarjado'
+        for side,title in [('antes',before_title),('depois',after_title)]:
             frame=ttk.Frame(notebook);notebook.add(frame,text=title)
             frame.rowconfigure(0,weight=1);frame.columnconfigure(0,weight=1)
             canvas=tk.Canvas(frame,background='#e9ecef')
@@ -438,6 +448,9 @@ class Aplicativo:
                 try:
                     previews=future.result()
                     self.detected.add(i)
+                    pages=previews.get('paginas_origem',1)
+                    self.page_counts[i]=pages
+                    self.original_title.set(f'Original — página 1 de {pages}' if pages>1 else 'Original')
                     if previews.get('tipo'):
                         self.jobs[i].tipo=previews['tipo'];self._update_row(i)
                     self._show_fields()

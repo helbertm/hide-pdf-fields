@@ -106,6 +106,18 @@ class InterfaceTest(unittest.TestCase):
         self.assertIn('a'*64,args)
         self.assertNotIn('v3.0.0',args)
 
+    def test_pedido_multipagina_mostra_descarte_antes_de_processar(self):
+        import pymupdf as pdf
+        src=self.folder/'A.pdf'
+        with pdf.open(src) as d:
+            d.new_page(); data=d.tobytes()
+        src.write_bytes(data)
+        self.app.load()
+        self.pump(lambda:self.app.page_counts.get(0)==2)
+        self.assertIn('página 1 de 2',self.app.original_title.get())
+        labels=[w.cget('text') for w in self.app.fields_frame.winfo_children() if w.winfo_class()=='TCheckbutton']
+        self.assertTrue(any('serão descartadas' in label for label in labels))
+
     def test_lote_previews_resize_e_ampliacao(self):
         self.assertEqual(self.root.title(),'Ocultar Dados - Pedido Interno e NFe')
         self.assertIsNotNone(self.app.window_icon)

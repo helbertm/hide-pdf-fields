@@ -66,6 +66,8 @@ def processar_arquivo(origem, pasta_saida, tipo='auto', dpi=300, campos=None, de
         if hashlib.sha256(origem.read_bytes()).hexdigest() != before:
             return Resultado(str(origem), status='falhou', mensagem='A origem mudou durante o processamento; confira a pasta de saída.')
         mensagem = f"{len(info['regioes'])} grupo(s) ocultado(s); {len(info['mantidos'])} mantido(s) por escolha."
+        if info['paginas_descartadas']:
+            mensagem += f" Apenas a primeira página foi mantida; {info['paginas_descartadas']} página(s) descartada(s)."
         if info['ausentes']:
             mensagem += ' Observações finais: não encontradas.'
         return Resultado(str(origem), str(destino), 'concluido', info['tipo'],
@@ -98,8 +100,10 @@ def _miniatura(path, largura, altura, expected_hash=''):
     if expected_hash and hashlib.sha256(data).hexdigest() != expected_hash:
         raise Recusado('Arquivo alterado após o processamento; recarregue e processe em outro destino.')
     with pdf.open(stream=data, filetype='pdf') as d:
-        if not d.is_pdf or d.needs_pass or len(d) != 1:
-            raise Recusado('Prévia disponível apenas para PDF de uma página, sem senha.')
+        if not d.is_pdf or d.needs_pass or not len(d):
+            raise Recusado('Prévia disponível apenas para PDF íntegro, sem senha.')
+        if len(d) > 1:
+            plan(d)
         p = d[0]
         escala = min(largura/p.rect.width, altura/p.rect.height)
         pix = p.get_pixmap(matrix=pdf.Matrix(escala, escala), colorspace=pdf.csRGB, alpha=False)
@@ -113,6 +117,7 @@ def comparar(resultado, largura=420, altura=600):
     try:
         with pdf.open(resultado.origem) as d:
             tipo, _, _ = plan(d)
+            previews['paginas_origem'] = len(d)
         previews['tipo'] = tipo
     except Exception:
         previews['tipo'] = ''
