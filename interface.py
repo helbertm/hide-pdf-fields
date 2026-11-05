@@ -6,6 +6,13 @@ from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 import sys
+import os
+import queue
+import subprocess
+import threading
+import shutil
+import copy
+from atualizacao import consultar, baixar
 try:
     import tkinter as tk
     from tkinter import ttk, filedialog, messagebox
@@ -34,6 +41,10 @@ class Aplicativo:
         self.resize_after = None
         self.pool_broken = False
         self.running = False
+        self.updating = False
+        self.update_info = None
+        self.update_queue = queue.Queue()
+        self.update_checking = False
         self.stopping = False
         self.closing = False
         self.index = 0
@@ -56,6 +67,9 @@ class Aplicativo:
         self.target.trace_add('write',self._paths_changed)
         root.protocol('WM_DELETE_WINDOW',self.close)
         root.after(80,self.poll)
+        if sys.platform == "win32":
+            self.check_update()
+        root.after(150,self.poll_update)
 
     def _build(self):
         root = self.root
@@ -143,7 +157,15 @@ class Aplicativo:
         self.summary_label.pack(anchor='w',fill='x')
         self.summary_default_bg=self.summary_label.cget('background')
         self.summary_default_fg=self.summary_label.cget('foreground')
-        ttk.Label(footer,text='Confira a visualização ampliada antes de compartilhar. A saída não terá texto selecionável.').pack(anchor='w',pady=(4,0))
+        update_row=ttk.Frame(footer)
+        update_row.pack(fill='x',pady=(4,0))
+        self.update_button=ttk.Button(update_row,text='Atualização disponível',command=self.begin_update)
+        self.update_status=tk.StringVar(value='')
+        self.update_detail=ttk.Frame(footer)
+        self.update_progress=ttk.Progressbar(self.update_detail,mode='determinate',length=130,maximum=100)
+        self.update_label=ttk.Label(self.update_detail,textvariable=self.update_status)
+        ttk.Label(update_row,text='Confira a visualização ampliada antes de compartilhar. A saída não terá texto selecionável.',wraplength=610).pack(side='left',fill='x',expand=True)
+
         self._clear_previews('Selecione um arquivo.')
 
     def choose(self,var):
@@ -239,7 +261,7 @@ class Aplicativo:
         job=self.jobs[i]
         defaults=list(CAMPOS[job.tipo])
         chosen=self.choices.get(i,defaults)
-        editable=not self.running and job.status=='aguardando'
+        editable=not self.running and not self.updating and job.status=='aguardando'
         buttons=ttk.Frame(self.fields_frame);buttons.pack(fill='x',pady=(0,8))
         for title,values in [('Marcar todos',defaults),('Desmarcar todos',[])]:
             ttk.Button(buttons,text=title,command=lambda v=values:self._set_fields(v),state='normal' if editable else 'disabled').pack(side='left',padx=(0,4))
@@ -254,7 +276,7 @@ class Aplicativo:
         if i is None or not self.jobs[i].tipo:return
         job=self.jobs[i];defaults=list(CAMPOS[job.tipo])
         hidden=len(self.choices.get(i,defaults))
-        editable=not self.running and job.status=='aguardando'
+        editable=not self.running and not self.updating and job.status=='aguardando'
         self.fields_summary.set(f'{hidden} grupo(s) a ocultar · {len(defaults)-hidden} a manter visíveis.' +
                                 ('\nNenhum marcado: arquivo será ignorado.' if not hidden else '') +
                                 ('\nPara alterar, recarregue em outro destino.' if not editable and not self.running else ''))
@@ -265,7 +287,7 @@ class Aplicativo:
 
     def _fields_changed(self):
         i=self.selected()
-        if i is None or self.running or self.jobs[i].status!='aguardando':return
+        if i is None or self.running or self.updating or self.jobs[i].status!='aguardando':return
         self.choices[i]=[key for key,var in self.field_vars.items() if var.get()]
         self._field_summary()
         any_selected=any(self.choices.get(j,None)!=[] for j in range(len(self.jobs)))
@@ -324,7 +346,7 @@ class Aplicativo:
         ttk.Label(window,text='Use as abas Original / Resultado tarjado e as barras de rolagem para conferir os detalhes.').pack(pady=8)
 
     def start(self):
-        if not self.jobs or self.running:return
+        if not self.jobs or self.running or self.updating:return
         try:self.batch_recipient=validar_destinatario(self.recipient.get())
         except Recusado as e:
             messagebox.showerror('Destinatário necessário',str(e),parent=self.root)
@@ -339,6 +361,7 @@ class Aplicativo:
         self.batch_time=datetime.now().astimezone()
         self.batch_choices={i:list(v) for i,v in self.choices.items()}
         self.running=True;self.stopping=False;self.index=0
+        self.update_button.configure(state="disabled")
         self._show_fields()
         self.run_button.configure(state='disabled');self.load_button.configure(state='disabled')
         self.stop_button.configure(state='normal')
@@ -385,6 +408,8 @@ class Aplicativo:
         self.summary_label.configure(background='#fff3cd' if attention else '#dff3e5',foreground='#664d03' if attention else '#14532d')
         self.summary.set(f"{title} — {counts['concluido']} concluído(s) · {counts['recusado']} recusado(s) · {counts['falhou']} falha(s) · {counts['cancelado']} cancelado(s) · {counts['ignorado']} ignorado(s). Recarregue para iniciar outro lote.")
         self.selection()
+        if self.update_info:self.update_button.configure(state="normal")
+        if sys.platform == "win32":self.check_update()
 
     def poll(self):
         if self.active and self.active[1].done():
@@ -423,7 +448,76 @@ class Aplicativo:
             except Exception:self._clear_previews('Prévia indisponível.')
         self.root.after(80,self.poll)
 
+    def check_update(self):
+        if self.update_checking or self.updating:return
+        self.update_checking=True
+        def work():
+            try:self.update_queue.put(('checked',consultar()))
+            except Exception:self.update_queue.put(('checked',None))
+        threading.Thread(target=work,daemon=True).start()
+
+    def begin_update(self):
+        if self.running or self.updating or not self.update_info:return
+        release=copy.deepcopy(self.update_info)
+        if not messagebox.askyesno('Atualizar aplicativo?',f"Atualizar para {release['version']}?\n\nO aplicativo será encerrado para instalar a atualização. Os PDFs gerados serão preservados. As seleções atuais precisarão ser refeitas.",parent=self.root):return
+        controls=[self.run_button,self.load_button,self.color_combo,*self.path_widgets]
+        self.update_previous_states=[(widget,str(widget.cget('state'))) for widget in controls]
+        self.active_update_info=release
+        self.updating=True
+        self._show_fields()
+        self.update_button.configure(state='disabled')
+        self.run_button.configure(state='disabled');self.load_button.configure(state='disabled')
+        for w in self.path_widgets:w.configure(state='disabled')
+        self.color_combo.configure(state='disabled')
+        self.update_detail.pack(fill='x',pady=(4,0))
+        self.update_label.pack(side='left',padx=5)
+        self.update_progress.pack(side='left',padx=5)
+        self.update_progress.configure(value=0)
+        self.update_status.set('Baixando atualização…')
+        def progress(current,total):self.update_queue.put(('progress',current*100/total))
+        def work():
+            try:self.update_queue.put(('downloaded',baixar(release,progress)))
+            except Exception:self.update_queue.put(('failed',None))
+        threading.Thread(target=work,daemon=True).start()
+
+    def poll_update(self):
+        if self.closing:return
+        try:
+            while True:
+                event,value=self.update_queue.get_nowait()
+                if event=='checked':
+                    self.update_checking=False
+                    if value:
+                        self.update_info=value
+                        self.update_button.configure(text='Atualizar para '+value['version'],state='disabled' if self.running or self.updating else 'normal')
+                        self.update_button.pack(side='right',padx=(8,0))
+                elif event=='progress':self.update_progress.configure(value=value)
+                elif event=='failed':self.update_failed()
+                elif event=='downloaded':
+                    self.update_status.set('Atualização verificada.')
+                    messagebox.showinfo('Atualização pronta','O aplicativo será encerrado. Acompanhe a instalação na janela que será aberta.',parent=self.root)
+                    try:
+                        release=self.active_update_info
+                        subprocess.Popen(['powershell.exe','-NoProfile','-NoExit','-ExecutionPolicy','Bypass','-File',str(value/'install.ps1'),'-Version',release['version'],'-ArchiveSha256',release['assets']['hide-pdf-fields-windows.zip']['sha256'],'-ArchivePath',str(value/'hide-pdf-fields-windows.zip')],creationflags=subprocess.CREATE_NEW_CONSOLE)
+                        self.updating=False
+                        self.close()
+                    except Exception:
+                        shutil.rmtree(value,ignore_errors=True)
+                        self.update_failed()
+        except queue.Empty:pass
+        if not self.closing:self.root.after(150,self.poll_update)
+
+    def update_failed(self):
+        self.updating=False
+        self.update_detail.pack_forget()
+        self.update_button.configure(state='normal')
+        for widget,state in self.update_previous_states:widget.configure(state=state)
+        self._show_fields()
+        messagebox.showerror('Atualização não concluída','Não foi possível preparar a atualização. Verifique a conexão e tente novamente. A versão atual continua disponível.',parent=self.root)
+
     def close(self):
+        if self.updating and not self.closing:
+            messagebox.showinfo('Atualização em andamento','Aguarde o fim da preparação da atualização.',parent=self.root);return
         if self.running:
             if not messagebox.askyesno('Encerrar após arquivo atual?','O arquivo em andamento será concluído. Os seguintes não serão iniciados. Deseja encerrar?',parent=self.root):return
             self.stop()

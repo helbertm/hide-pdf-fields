@@ -14,6 +14,12 @@ A versão anterior é preservada em atualizações. O atalho só muda após a ve
 
 Para desinstalar, feche o aplicativo, remova o atalho **Ocultar Dados** e a pasta `%LOCALAPPDATA%\HidePdfFields`. Python e PDFs salvos fora dessa pasta permanecem intactos.
 
+## Atualizações
+
+No Windows, o aplicativo verifica a versão disponível ao iniciar e ao concluir um lote. Quando houver uma versão mais recente, o botão **Atualizar para vX.Y.Z** aparece no rodapé e fica indisponível durante o processamento. Ao confirmar, o aplicativo baixa e verifica o pacote e o instalador, avisa sobre o encerramento e abre uma janela para instalar. As seleções não são preservadas; PDFs continuam intactos. Uma falha na consulta não impede o uso. A versão 1.0.0 precisa ser atualizada manualmente para receber esse recurso.
+
+A atualização consulta somente a release pública do repositório e não envia PDFs ou dados informados ao aplicativo. Os hashes são obtidos da própria release: eles verificam integridade, mas não constituem assinatura independente do publicador.
+
 ## Usar
 
 1. Abra o atalho **Ocultar Dados**.

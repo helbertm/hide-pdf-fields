@@ -76,6 +76,36 @@ class InterfaceTest(unittest.TestCase):
         self.assertIn('disabled',self.app.run_button.state())
         self.assertIn('pelo menos',self.app.summary.get())
 
+    def test_atualizacao_indisponivel_durante_lote_e_confirmacao(self):
+        from unittest.mock import patch
+        self.app.update_info={'version':'v9.0.0','assets':{}}
+        self.app.update_queue.put(('checked',self.app.update_info))
+        self.app.poll_update()
+        self.assertIn('v9.0.0',self.app.update_button.cget('text'))
+        self.app.running=True
+        with patch('interface.messagebox.askyesno') as confirm:
+            self.app.begin_update()
+            confirm.assert_not_called()
+        self.app.running=False
+        with patch('interface.messagebox.askyesno',return_value=False):self.app.begin_update()
+        self.assertFalse(self.app.updating)
+
+    def test_atualizacao_congela_versao_durante_download(self):
+        from unittest.mock import patch
+        release={'version':'v2.0.0','assets':{'hide-pdf-fields-windows.zip':{'sha256':'a'*64}}}
+        newer={'version':'v3.0.0','assets':{'hide-pdf-fields-windows.zip':{'sha256':'b'*64}}}
+        self.app.update_info=release
+        with patch('interface.messagebox.askyesno',return_value=True), patch('interface.threading.Thread'):
+            self.app.begin_update()
+        self.app.update_queue.put(('checked',newer))
+        self.app.update_queue.put(('downloaded',Path(self.tmp.name)))
+        with patch('interface.messagebox.showinfo'), patch('interface.subprocess.CREATE_NEW_CONSOLE',0,create=True), patch('interface.subprocess.Popen') as launch, patch.object(self.app,'close'):
+            self.app.poll_update()
+        args=launch.call_args.args[0]
+        self.assertIn('v2.0.0',args)
+        self.assertIn('a'*64,args)
+        self.assertNotIn('v3.0.0',args)
+
     def test_lote_previews_resize_e_ampliacao(self):
         self.assertEqual(self.root.title(),'Ocultar Dados - Pedido Interno e NFe')
         self.assertEqual(self.app.run_button.cget('text'),'Processar')

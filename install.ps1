@@ -12,7 +12,7 @@ Set-StrictMode -Version Latest
 $Repository = 'helbertm/hide-pdf-fields'
 $PythonVersion = '3.14.10'
 $PythonInstallerSha256 = '92480239264744fe0386a1bd8275786fefa126e3129e56a68e22b52c73329965'
-$AllowedFiles = @('interface.py','tarjar.py','lote.py','requirements-win.lock','README.md','USO.md','THIRD_PARTY.md','scripts/smoke.py')
+$AllowedFiles = @('interface.py','atualizacao.py','tarjar.py','lote.py','requirements-win.lock','README.md','USO.md','THIRD_PARTY.md','scripts/smoke.py')
 
 Add-Type -TypeDefinition @'
 using System;
@@ -138,7 +138,8 @@ function Install-App {
                 throw 'Ja existe um atalho Ocultar Dados de outro aplicativo. Renomeie-o e tente novamente.'
             }
         }
-        $NewShortcutPath = Join-Path $TempPath 'Ocultar Dados.lnk'
+        $NewShortcutPath = Join-Path $Desktop ('.ocultar-dados-' + [guid]::NewGuid().ToString('N') + '.lnk')
+        $BackupShortcutPath = $NewShortcutPath + '.backup'
         $Shortcut = $Shell.CreateShortcut($NewShortcutPath)
         $Shortcut.TargetPath = Join-Path $Venv 'Scripts\pythonw.exe'
         $Shortcut.Arguments = '"' + (Join-Path $AppPath 'interface.py') + '"'
@@ -146,8 +147,17 @@ function Install-App {
         $Shortcut.Description = 'Ocultar Dados - Pedido Interno e NFe'
         $Shortcut.IconLocation = $Shortcut.TargetPath + ',0'
         $Shortcut.Save()
-        Copy-Item -LiteralPath $NewShortcutPath -Destination $ShortcutPath -Force
+        try {
+            if (Test-Path -LiteralPath $ShortcutPath) {
+                [IO.File]::Replace($NewShortcutPath, $ShortcutPath, $BackupShortcutPath)
+            } else {
+                [IO.File]::Move($NewShortcutPath, $ShortcutPath)
+            }
+        } finally {
+            if (Test-Path -LiteralPath $NewShortcutPath) { Remove-Item -LiteralPath $NewShortcutPath -Force }
+        }
         if (-not (Test-Path -LiteralPath $ShortcutPath)) { throw 'Atalho nao foi criado.' }
+        if (Test-Path -LiteralPath $BackupShortcutPath) { Remove-Item -LiteralPath $BackupShortcutPath -Force }
         Write-Host 'Instalacao concluida. Abra Ocultar Dados na Area de Trabalho.'
         return $InstallPath
     } finally {
