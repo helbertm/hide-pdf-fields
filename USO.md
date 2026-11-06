@@ -12,7 +12,11 @@ Se recarregar a mesma pasta, os resultados anteriores também serão listados e 
 
 ## Visualizador manual em desenvolvimento
 
-A etapa experimental permite abrir e visualizar um PDF por vez, com navegação entre páginas, rolagem e escala fixa de 100%. Documentos com alguma página rotacionada e PDFs que exigem senha para abertura são recusados. A página exibida pode ser marcada como excluída de um futuro resultado e depois restaurada; a navegação mantém a numeração original e pelo menos uma página deve permanecer incluída. As escolhas são feitas apenas em memória: nenhum arquivo é gerado e nenhuma página é excluída do original. Esta etapa ainda não inclui marcação de áreas, posicionamento de avisos ou geração de PDFs.
+A etapa experimental permite abrir e visualizar um PDF por vez, com navegação entre páginas, rolagem e escala fixa de 100%. Documentos com alguma página rotacionada e PDFs que exigem senha para abertura são recusados. A página exibida pode ser marcada como excluída de um futuro resultado e depois restaurada; a navegação mantém a numeração original e pelo menos uma página deve permanecer incluída.
+
+É possível desenhar marcações de tarja por página, nas cores Preto, Vermelho escuro, Cinza escuro ou Branco. Para corrigir uma marcação, selecione-a, apague-a e desenhe outra; não há ajuste de posição ou tamanho. As marcações de uma página são preservadas se ela for marcada para exclusão e depois restaurada.
+
+**As marcações manuais são somente uma prévia em memória e ainda não removem dados.** Nenhum arquivo é gerado, nenhuma página é excluída do original e o PDF original não é alterado. Esta etapa ainda não inclui posicionamento de avisos ou geração de PDFs.
 
 ## Campos
 
@@ -36,7 +40,7 @@ O aviso usa fonte de 7 pontos, normalmente em cinza na área branca inferior. Se
 
 O destinatário mantém acentos no documento. Se a área estiver ocupada, a geração é recusada. O texto expressa o uso pretendido; não impede tecnicamente cópia ou compartilhamento.
 
-## Remoção e conferência
+## Remoção e conferência no modo automático
 
 As tarjas substituem pixels pela cor sólida escolhida: Preto (padrão), Vermelho escuro, Cinza escuro ou Branco. Branco também remove os dados efetivamente, sem manter conteúdo por baixo. A cor é comum ao lote e fica congelada durante o processamento. Um PDF novo recebe somente a imagem já tarjada e o aviso; objetos do original, anexos, metadados e texto oculto não são copiados. A imagem incorporada é reextraída e comparada byte a byte; a tarja é verificada na cor escolhida antes de inserir o aviso; no resultado final, a única exceção é a área do aviso quando ele estiver sobre a observação. O original é preservado.
 

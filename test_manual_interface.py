@@ -83,6 +83,270 @@ class ManualInterfaceTest(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(), source_hash)
         self.assertEqual(list(self.folder.iterdir()), [self.source])
 
+    def mouse(self, sequence, x, y):
+        self.viewer.canvas.event_generate(sequence, x=int(x), y=int(y))
+        self.root.update()
+
+    def draw(self, x0, y0, x1, y1):
+        self.mouse('<ButtonPress-1>',x0,y0)
+        self.mouse('<B1-Motion>',x1,y1)
+        self.mouse('<ButtonRelease-1>',x1,y1)
+
+    def test_quatro_cores_selecao_e_apagar_sobreposicao(self):
+        source_hash=hashlib.sha256(self.source.read_bytes()).hexdigest()
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.assertIn('ainda não ocultam dados',self.viewer.preview_warning.cget('text'))
+        for label in ('Preto','Vermelho escuro','Cinza escuro','Branco'):
+            self.viewer.mark_color.set(label)
+            self.draw(20,20,100,100)
+        marks=self.viewer.marks[0]
+        self.assertEqual([mark['cor'] for mark in marks],['preto','vermelho_escuro','cinza_escuro','branco'])
+        self.assertEqual(len({mark['id'] for mark in marks}),4)
+        self.assertEqual(len(self.viewer.canvas.find_withtag('mark')),8)
+        # The white region has both white and black outlines and remains visible.
+        last_ids=self.viewer.canvas.find_withtag('mark')[-2:]
+        self.assertEqual(self.viewer.canvas.itemcget(last_ids[0],'outline'),'#ffffff')
+        self.assertEqual(self.viewer.canvas.itemcget(last_ids[1],'outline'),'#000000')
+        self.viewer.tool.set('selecionar')
+        self.mouse('<ButtonPress-1>',40,40)
+        self.mouse('<ButtonRelease-1>',40,40)
+        self.assertEqual(self.viewer.selected_mark_id,marks[-1]['id'])
+        self.assertIn('selecionada',self.viewer.selection_status.get())
+        selected_outline=self.viewer.canvas.find_withtag('mark')[-1]
+        self.assertEqual(self.viewer.canvas.itemcget(selected_outline,'dash'),'5 3')
+        self.assertEqual(float(self.viewer.canvas.itemcget(selected_outline,'width')),3.0)
+        self.assertNotIn('disabled',self.viewer.delete_button.state())
+        self.viewer.delete_button.invoke()
+        self.assertEqual([mark['cor'] for mark in self.viewer.marks[0]],['preto','vermelho_escuro','cinza_escuro'])
+        self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(),source_hash)
+        self.assertEqual(list(self.folder.iterdir()),[self.source])
+
+    def test_arrasto_inverso_vazio_fora_e_limitado_a_pagina(self):
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.draw(400,20,420,50)  # início fora da página não deve criar tarja
+        self.assertEqual(self.viewer.marks,{})
+        self.draw(30,30,30,30)
+        self.assertEqual(self.viewer.marks,{})
+        self.draw(200,200,20,20)
+        r=self.viewer.marks[0][0]['rect']
+        self.assertLess(r[0],r[2]);self.assertLess(r[1],r[3])
+        self.draw(15,15,800,800)
+        r=self.viewer.marks[0][1]['rect']
+        self.assertAlmostEqual(r[2],200,places=5)
+        self.assertAlmostEqual(r[3],300,places=5)
+
+    def test_coordenadas_com_rolagem_xy_e_bloqueio_durante_arrasto(self):
+        from manual_pdf import ESCALA_100
+        wide=self.folder/'largo_marcacao.pdf'
+        with pdf.open() as d:
+            d.new_page(width=1000,height=1400);d.save(wide)
+        self.viewer.window.geometry('640x480')
+        self.viewer.open_path(wide)
+        self.pump(lambda:self.viewer.image is not None)
+        canvas=self.viewer.canvas
+        canvas.xview_moveto(.25);canvas.yview_moveto(.3);self.root.update()
+        origin=canvas.coords(self.viewer.page_image_id)
+        expected_x=(canvas.canvasx(35)-origin[0])/ESCALA_100
+        expected_y=(canvas.canvasy(45)-origin[1])/ESCALA_100
+        before_x,before_y=canvas.xview(),canvas.yview()
+        self.mouse('<ButtonPress-1>',35,45)
+        self.assertIsNotNone(self.viewer.drag)
+        self.viewer._scroll('x',4);self.viewer._scroll('y',4)
+        self.viewer._viewport('x','scroll',4,'units');self.viewer._viewport('y','scroll',4,'units')
+        self.assertEqual(canvas.xview(),before_x);self.assertEqual(canvas.yview(),before_y)
+        self.mouse('<B1-Motion>',95,105)
+        self.mouse('<ButtonRelease-1>',95,105)
+        rect=self.viewer.marks[0][0]['rect']
+        self.assertAlmostEqual(rect[0],expected_x,places=5)
+        self.assertAlmostEqual(rect[1],expected_y,places=5)
+        self.assertAlmostEqual(rect[2]-rect[0],60/ESCALA_100,places=5)
+        self.assertAlmostEqual(rect[3]-rect[1],60/ESCALA_100,places=5)
+
+    def test_cropbox_coordenadas_relativas_a_pagina_visivel(self):
+        from manual_pdf import ESCALA_100
+        src=self.folder/'recorte.pdf'
+        with pdf.open() as d:
+            page=d.new_page(width=500,height=600)
+            page.set_cropbox(pdf.Rect(50,60,450,560))
+            d.save(src)
+        self.viewer.open_path(src)
+        self.pump(lambda:self.viewer.image is not None)
+        self.assertEqual(self.viewer.document['paginas'][0]['cropbox'][:2],[50.0,60.0])
+        canvas=self.viewer.canvas;origin=canvas.coords(self.viewer.page_image_id)
+        expected_x=(canvas.canvasx(40)-origin[0])/ESCALA_100
+        expected_y=(canvas.canvasy(50)-origin[1])/ESCALA_100
+        self.draw(40,50,100,110)
+        rect=self.viewer.marks[0][0]['rect']
+        self.assertAlmostEqual(rect[0],expected_x,places=5)
+        self.assertAlmostEqual(rect[1],expected_y,places=5)
+        self.assertLess(rect[0],50)
+        self.assertLess(rect[1],60)
+
+    def test_cancelar_por_cor_modo_escape_ou_navegacao(self):
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.mouse('<ButtonPress-1>',20,20)
+        self.assertIsNotNone(self.viewer.drag)
+        self.viewer.mark_color.set('Branco')
+        self.assertIsNone(self.viewer.drag)
+        self.mouse('<ButtonRelease-1>',100,100)
+        self.assertEqual(self.viewer.marks,{})
+        self.mouse('<ButtonPress-1>',20,20)
+        self.viewer.tool.set('selecionar')
+        self.assertIsNone(self.viewer.drag)
+        self.viewer.tool.set('desenhar')
+        self.mouse('<ButtonPress-1>',20,20)
+        self.viewer._cancel_drag()
+        self.mouse('<ButtonRelease-1>',100,100)
+        self.assertEqual(self.viewer.marks,{})
+        self.mouse('<ButtonPress-1>',20,20)
+        self.viewer.go(1)
+        self.assertIsNone(self.viewer.drag)
+        self.pump(lambda:self.viewer.image is not None and self.viewer.page==1)
+        self.mouse('<ButtonRelease-1>',100,100)
+        self.assertEqual(self.viewer.marks,{})
+
+    def test_delete_apaga_somente_com_foco_no_canvas(self):
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.draw(20,20,100,100)
+        self.viewer.tool.set('selecionar')
+        self.mouse('<ButtonPress-1>',40,40)
+        self.mouse('<ButtonRelease-1>',40,40)
+        self.viewer.canvas.focus_force()
+        self.root.update()
+        if self.root.focus_get() is not self.viewer.canvas:
+            self.skipTest('Ambiente gráfico não concedeu foco ao canvas.')
+        self.viewer.canvas.event_generate('<Delete>')
+        self.root.update()
+        self.assertEqual(self.viewer.marks,{})
+
+    def test_escape_real_cancela_arrasto_e_ocupacao_tambem(self):
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.mouse('<ButtonPress-1>',20,20)
+        self.viewer.canvas.focus_force()
+        self.root.update()
+        if self.root.focus_get() is self.viewer.canvas:
+            self.viewer.canvas.event_generate('<Escape>')
+            self.root.update()
+            self.assertIsNone(self.viewer.drag)
+        else:
+            self.viewer._cancel_drag()
+        self.mouse('<ButtonRelease-1>',100,100)
+        self.assertEqual(self.viewer.marks,{})
+        self.mouse('<ButtonPress-1>',20,20)
+        self.app.running=True
+        self.viewer._controls()
+        self.assertIsNone(self.viewer.drag)
+        self.app.running=False
+        self.mouse('<ButtonRelease-1>',100,100)
+        self.assertEqual(self.viewer.marks,{})
+
+    def test_troca_durante_arrasto_invalido_preserva_valido_descarta(self):
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.draw(20,20,90,90)
+        saved=list(self.viewer.marks[0])
+        invalid=self.folder/'rotacionado_durante_arrasto.pdf'
+        with pdf.open() as d:
+            d.new_page().set_rotation(90);d.save(invalid)
+        self.mouse('<ButtonPress-1>',120,120)
+        self.assertIsNotNone(self.viewer.drag)
+        with patch('manual_interface.messagebox.showerror'):
+            self.viewer.open_path(invalid)
+            self.assertIsNone(self.viewer.drag)
+            self.mouse('<ButtonRelease-1>',160,160)
+            self.pump(lambda:self.viewer.inspect_future is None)
+        self.assertEqual(self.viewer.marks[0],saved)
+        self.mouse('<ButtonPress-1>',120,120)
+        self.assertIsNotNone(self.viewer.drag)
+        valid=self.folder/'outro_durante_arrasto.pdf'
+        with pdf.open() as d:
+            d.new_page(width=200,height=300);d.save(valid)
+        self.viewer.open_path(valid)
+        self.assertIsNone(self.viewer.drag)
+        self.mouse('<ButtonRelease-1>',160,160)
+        self.pump(lambda:self.viewer.path==str(valid) and self.viewer.image is not None)
+        self.assertEqual(self.viewer.marks,{})
+        self.assertEqual(self.viewer.next_mark_id,1)
+
+    def test_excluir_pagina_bloqueia_edicao_mas_mantem_tarjas(self):
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.draw(20,20,100,100)
+        saved=list(self.viewer.marks[0])
+        self.viewer.toggle_exclusion()
+        self.assertIn('disabled',self.viewer.draw_button.state())
+        self.draw(120,120,160,160)
+        self.assertEqual(self.viewer.marks[0],saved)
+        self.viewer.toggle_exclusion()
+        self.assertNotIn('disabled',self.viewer.draw_button.state())
+        self.assertEqual(self.viewer.marks[0],saved)
+        self.viewer.go(1)
+        self.pump(lambda:self.viewer.image is not None and self.viewer.page==1)
+        self.draw(20,20,80,80)
+        self.viewer.go(-1)
+        self.pump(lambda:self.viewer.image is not None and self.viewer.page==0)
+        self.assertEqual(self.viewer.marks[0],saved)
+        self.assertEqual(len(self.viewer.marks[1]),1)
+        self.app.running=True
+        self.viewer._controls()
+        self.draw(120,120,160,160)
+        self.assertEqual(self.viewer.marks[0],saved)
+        self.app.running=False
+
+    def test_cursor_reflete_modo_e_possibilidade_de_editar(self):
+        self.assertNotEqual(self.viewer.canvas.cget('cursor'),'crosshair')
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.assertEqual(self.viewer.canvas.cget('cursor'),'crosshair')
+        self.viewer.tool.set('selecionar')
+        self.assertNotEqual(self.viewer.canvas.cget('cursor'),'crosshair')
+        self.viewer.tool.set('desenhar')
+        self.assertEqual(self.viewer.canvas.cget('cursor'),'crosshair')
+        self.viewer.toggle_exclusion()
+        self.assertNotEqual(self.viewer.canvas.cget('cursor'),'crosshair')
+        self.viewer.toggle_exclusion()
+        self.assertEqual(self.viewer.canvas.cget('cursor'),'crosshair')
+        self.app.running=True;self.viewer._controls()
+        self.assertNotEqual(self.viewer.canvas.cget('cursor'),'crosshair')
+        self.app.running=False;self.viewer._controls()
+        self.assertEqual(self.viewer.canvas.cget('cursor'),'crosshair')
+
+    def test_barra_e_canvas_no_tamanho_minimo_com_atualizacao_e_tarja(self):
+        self.root.geometry('900x650')
+        self.app.update_queue.put(('checked',{'version':'v9.0.0','assets':{}}))
+        self.app.poll_update()
+        self.viewer.window.geometry('600x450')
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.draw(20,20,100,100)
+        self.viewer.tool.set('selecionar')
+        self.mouse('<ButtonPress-1>',40,40)
+        self.mouse('<ButtonRelease-1>',40,40)
+        self.root.update()
+        self.assertTrue(self.app.update_button.winfo_ismapped())
+        self.assertIsNotNone(self.viewer.selected_mark_id)
+        window=self.viewer.window
+        x0,y0=window.winfo_rootx(),window.winfo_rooty()
+        x1,y1=x0+window.winfo_width(),y0+window.winfo_height()
+        for widget in (self.viewer.draw_button,self.viewer.select_button,self.viewer.delete_button,
+                       self.viewer.color_combo,self.viewer.preview_warning,self.viewer.selection_label,
+                       self.viewer.canvas,self.viewer.exclude_button,self.viewer.exclusion_label,
+                       self.viewer.status_label):
+            self.assertTrue(widget.winfo_ismapped(),str(widget))
+            left,top=widget.winfo_rootx(),widget.winfo_rooty()
+            right,bottom=left+widget.winfo_width(),top+widget.winfo_height()
+            self.assertGreaterEqual(left,x0,str(widget));self.assertGreaterEqual(top,y0,str(widget))
+            self.assertLessEqual(right,x1,str(widget));self.assertLessEqual(bottom,y1,str(widget))
+            if widget is not self.viewer.canvas:
+                self.assertGreaterEqual(widget.winfo_width(),widget.winfo_reqwidth(),str(widget))
+                self.assertGreaterEqual(widget.winfo_height(),widget.winfo_reqheight(),str(widget))
+        self.assertGreaterEqual(self.viewer.canvas.winfo_height(),80)
+
     def test_rolagem_horizontal_vertical_e_teclado(self):
         wide = self.folder / 'largo.pdf'
         with pdf.open() as doc:
@@ -159,6 +423,11 @@ class ManualInterfaceTest(unittest.TestCase):
         self.pump(lambda:self.viewer.image is not None)
         self.viewer.toggle_exclusion()
         self.assertEqual(self.viewer.excluded_pages,{0})
+        # Restore, add a mark, then exclude again before attempting replacement.
+        self.viewer.toggle_exclusion()
+        self.draw(20,20,100,100)
+        saved_marks=list(self.viewer.marks[0])
+        self.viewer.toggle_exclusion()
         invalid=self.folder/'nao_suportado.pdf'
         with pdf.open() as d:
             d.new_page().set_rotation(90);d.save(invalid)
@@ -168,6 +437,7 @@ class ManualInterfaceTest(unittest.TestCase):
         self.assertTrue(error.called)
         self.assertEqual(self.viewer.path,str(self.source))
         self.assertEqual(self.viewer.excluded_pages,{0})
+        self.assertEqual(self.viewer.marks[0],saved_marks)
         self.assertIn('Excluída do resultado',self.viewer.exclusion_status.get())
         replacement=self.folder/'outro.pdf'
         with pdf.open() as d:
@@ -175,6 +445,8 @@ class ManualInterfaceTest(unittest.TestCase):
         self.viewer.open_path(replacement)
         self.pump(lambda:self.viewer.path==str(replacement) and self.viewer.image is not None)
         self.assertEqual(self.viewer.excluded_pages,set())
+        self.assertEqual(self.viewer.marks,{})
+        self.assertEqual(self.viewer.next_mark_id,1)
         self.assertIn('Resultado previsto: 2 páginas · 0 excluídas',self.viewer.exclusion_status.get())
 
     def test_ocupado_impede_alteracao_da_exclusao(self):
@@ -210,8 +482,10 @@ class ManualInterfaceTest(unittest.TestCase):
     def test_alteracao_do_original_invalida_sessao(self):
         self.viewer.open_path(self.source)
         self.pump(lambda: self.viewer.image is not None)
+        self.draw(20,20,100,100)
         self.viewer.toggle_exclusion()
         self.assertEqual(self.viewer.excluded_pages,{0})
+        self.assertIn(0,self.viewer.marks)
         with pdf.open(self.source) as doc:
             doc.new_page()
             changed = doc.tobytes()
@@ -222,6 +496,7 @@ class ManualInterfaceTest(unittest.TestCase):
         self.assertTrue(error.called)
         self.assertIsNone(self.viewer.image)
         self.assertEqual(self.viewer.excluded_pages,set())
+        self.assertEqual(self.viewer.marks,{})
         self.assertIn('alterado', self.viewer.status.get().lower())
 
     def test_renderizacao_atrasada_nao_substitui_pagina_solicitada(self):
@@ -325,7 +600,7 @@ class ManualInterfaceTest(unittest.TestCase):
         self.viewer.path=str(self.source)
         self.viewer.request_page(0)
         self.assertIsNotNone(self.viewer.render_future)
-        tracked={id(self.viewer.filename),id(self.viewer.page_label),id(self.viewer.status),id(self.viewer.exclusion_status)}
+        tracked={id(self.viewer.filename),id(self.viewer.page_label),id(self.viewer.status),id(self.viewer.exclusion_status),id(self.viewer.selection_status),id(self.viewer.tool),id(self.viewer.mark_color)}
         destroyed=[]
         original_del=tk.Variable.__del__
         def check_thread(variable):
