@@ -107,3 +107,48 @@ def renderizar(caminho, sha256, indice):
     if hashlib.sha256(_ler(caminho)).hexdigest() != sha256:
         raise ManualPdfErro('O PDF foi alterado. Abra o arquivo novamente.')
     return resultado
+
+
+def visualizar_aviso(destinatario, largura, altura, instante_iso):
+    """Valida e renderiza o aviso completo em PNG, somente em memória.
+
+    Dimensões são relativas à página visível em pontos PDF. O texto e a
+    tipografia seguem o aviso do modo automático; esta função não abre PDFs
+    do usuário nem altera conteúdo. O instante recebido é apenas de prévia.
+    """
+    from datetime import datetime
+    from tarjar import Recusado, texto_aviso, validar_destinatario
+
+    try:
+        nome = validar_destinatario(destinatario)
+    except Recusado as error:
+        raise ManualPdfErro(str(error)) from None
+    try:
+        if isinstance(largura, bool) or isinstance(altura, bool):
+            raise ValueError
+        w, h = float(largura), float(altura)
+        instante = datetime.fromisoformat(instante_iso)
+        if not all(math.isfinite(v) for v in (w,h)) or w <= 6 or h <= 6:
+            raise ValueError
+        px_w, px_h = math.ceil(w*ESCALA_100), math.ceil(h*ESCALA_100)
+        if max(px_w, px_h) > MAX_DIMENSAO_PIXELS or px_w*px_h > MAX_PIXELS_PAGINA:
+            raise ValueError
+    except (ValueError, TypeError, OverflowError):
+        raise ManualPdfErro('A área do aviso tem dimensões inválidas ou insuficientes.') from None
+    try:
+        with pdf.open() as aviso:
+            page = aviso.new_page(width=w,height=h)
+            font = pdf.Font('helv')
+            page.insert_font(fontname='Aviso',fontbuffer=font.buffer)
+            texto = texto_aviso(nome,instante)
+            restante = page.insert_textbox(pdf.Rect(3,3,w-3,h-3),texto,
+                                           fontname='Aviso',fontsize=7,
+                                           color=(0.47,0.47,0.47),lineheight=1.3)
+            if restante < 0:
+                raise ManualPdfErro('O aviso não cabe nesta área. Remova-a e desenhe uma área maior.')
+            pix = page.get_pixmap(matrix=pdf.Matrix(ESCALA_100,ESCALA_100),colorspace=pdf.csRGB,alpha=False)
+            return {'texto': texto, 'png': pix.tobytes('png'), 'destinatario': nome}
+    except ManualPdfErro:
+        raise
+    except Exception:
+        raise ManualPdfErro('Não foi possível preparar a prévia do aviso.') from None

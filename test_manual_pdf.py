@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pymupdf as pdf
 
-from manual_pdf import ESCALA_100, ManualPdfErro, inspecionar, renderizar
+from manual_pdf import ESCALA_100, ManualPdfErro, inspecionar, renderizar, visualizar_aviso
 
 
 class ManualPdfTest(unittest.TestCase):
@@ -122,6 +122,45 @@ class ManualPdfTest(unittest.TestCase):
         with patch('manual_pdf._ler', side_effect=[dados, dados + b' ']):
             with self.assertRaisesRegex(ManualPdfErro, 'alterado'):
                 renderizar(self.path, h, 0)
+
+
+class AvisoManualTest(unittest.TestCase):
+    def test_aviso_completo_acentuado_e_em_memoria(self):
+        result = visualizar_aviso('  João   e Márcia ', 535, 80, '2026-11-05T08:09:00-03:00')
+        self.assertEqual(result['destinatario'], 'João e Márcia')
+        self.assertEqual(result['texto'], 'Dados sigilosos ocultados intencionalmente. Documento gerado em 05/11/26 08:09.\nUso exclusivo de João e Márcia, gentileza não compartilhar com terceiros.')
+        pix = pdf.Pixmap(result['png'])
+        self.assertEqual((pix.width, pix.height),(math.ceil(535*ESCALA_100),math.ceil(80*ESCALA_100)))
+        self.assertLess(min(pix.samples),200)
+
+    def test_mesma_tipografia_e_pixels_do_aviso_existente(self):
+        from datetime import datetime
+        from tarjar import inserir_aviso, pixel_box
+        area=pdf.Rect(30,750,565,798)
+        with pdf.open() as d:
+            page=d.new_page(width=595,height=842)
+            original=page.get_pixmap(dpi=96,colorspace=pdf.csRGB,alpha=False)
+            inserir_aviso(original,page.rect,'Equipe',96,datetime(2026,11,5,8,9),area=area)
+            preview=pdf.Pixmap(visualizar_aviso('Equipe',area.width,area.height,'2026-11-05T08:09:00')['png'])
+            box=pixel_box(area,96,original.width,original.height)
+            self.assertEqual((preview.width,preview.height),(box.width,box.height))
+            for y in range(preview.height):
+                before=original.samples_mv[(box.y0+y)*original.stride+box.x0*3:(box.y0+y)*original.stride+box.x1*3]
+                after=preview.samples_mv[y*preview.stride:(y+1)*preview.stride]
+                self.assertEqual(before,after)
+
+    def test_destinatario_120_e_validacoes(self):
+        self.assertIn('Á'*120,visualizar_aviso('Á'*120,535,80,'2026-11-05T08:09:00')['texto'])
+        for recipient in ('','A'*121,'x\ny','😀'):
+            with self.subTest(recipient=recipient), self.assertRaises(ManualPdfErro):
+                visualizar_aviso(recipient,535,80,'2026-11-05T08:09:00')
+
+    def test_area_pequena_invalida_e_limites(self):
+        for width,height in ((535,8),(8,20),(0,50),(-1,100),(float('nan'),100),(100000,100000)):
+            with self.subTest(width=width,height=height), self.assertRaises(ManualPdfErro):
+                visualizar_aviso('Equipe',width,height,'2026-11-05T08:09:00')
+        with self.assertRaises(ManualPdfErro):
+            visualizar_aviso('Equipe',535,80,'data inválida')
 
 
 if __name__ == '__main__':

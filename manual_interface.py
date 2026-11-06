@@ -1,10 +1,11 @@
 """Visualizador manual de PDFs: etapa inicial somente de leitura."""
 from pathlib import Path
+from datetime import datetime
 from concurrent.futures.process import BrokenProcessPool
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from manual_pdf import ESCALA_100, ManualPdfErro, inspecionar, renderizar
+from manual_pdf import ESCALA_100, ManualPdfErro, inspecionar, renderizar, visualizar_aviso
 from tarjar import CORES
 
 
@@ -26,6 +27,13 @@ class VisualizadorManual:
         self.marks = {}
         self.selected_mark_id = None
         self.next_mark_id = 1
+        self.notice_area = None
+        self.notice_image = None
+        self.notice_text = None
+        self.notice_token = 0
+        self.notice_request = None
+        self.notice_future = None
+        self.notice_after = None
         self.session_id = 0
         self.drag = None
         self.page_image_id = None
@@ -44,7 +52,7 @@ class VisualizadorManual:
         self.window.columnconfigure(0, weight=1)
         self.window.rowconfigure(3, weight=1)
 
-        header = ttk.Frame(self.window, padding=(12, 12, 12, 6))
+        header = ttk.Frame(self.window, padding=(12, 6, 12, 3))
         header.grid(row=0, column=0, sticky='ew')
         header.columnconfigure(1, weight=1)
         self.open_button = ttk.Button(header, text='Abrir PDF…', command=self.choose)
@@ -54,7 +62,7 @@ class VisualizadorManual:
         self.filename_entry.grid(row=0, column=1, sticky='ew', padx=12)
         ttk.Label(header, text='Visualização: 100%').grid(row=0, column=2, sticky='e')
 
-        navigation = ttk.Frame(self.window, padding=(12, 0, 12, 6))
+        navigation = ttk.Frame(self.window, padding=(12, 0, 12, 2))
         navigation.grid(row=1, column=0, sticky='ew')
         self.prev_button = ttk.Button(navigation, text='Anterior', command=lambda: self.go(-1))
         self.prev_button.pack(side='left')
@@ -63,7 +71,7 @@ class VisualizadorManual:
         self.next_button = ttk.Button(navigation, text='Próxima', command=lambda: self.go(1))
         self.next_button.pack(side='left')
 
-        tools = ttk.Frame(self.window, padding=(12, 0, 12, 6))
+        tools = ttk.Frame(self.window, padding=(12, 0, 12, 2))
         tools.grid(row=2, column=0, sticky='ew')
         self.tool = tk.StringVar(value='desenhar')
         self.draw_button = ttk.Radiobutton(tools, text='Desenhar tarja', variable=self.tool,
@@ -74,19 +82,35 @@ class VisualizadorManual:
         self.select_button.grid(row=0, column=1, sticky='w', padx=(8,0))
         self.delete_button = ttk.Button(tools, text='Apagar tarja selecionada', command=self.delete_selected)
         self.delete_button.grid(row=0, column=2, sticky='w', padx=(8,0))
-        ttk.Label(tools, text='Cor da nova tarja:').grid(row=1, column=0, sticky='w', pady=(4,0))
+        ttk.Label(tools, text='Cor da nova tarja:').grid(row=1, column=0, sticky='w', pady=(1,0))
         self.mark_color = tk.StringVar(value=CORES['preto'][0])
         self.color_combo = ttk.Combobox(tools, textvariable=self.mark_color,
                                         values=[name for name, _ in CORES.values()],
                                         state='readonly', width=16)
-        self.color_combo.grid(row=1, column=1, sticky='w', columnspan=2, pady=(4,0))
+        self.color_combo.grid(row=1, column=1, sticky='w', pady=(1,0))
+        recipient_box=ttk.Frame(tools)
+        recipient_box.grid(row=1, column=2, sticky='ew', padx=(8,0), pady=(1,0))
+        ttk.Label(recipient_box,text='Destinatário:').pack(side='left')
+        self.recipient=tk.StringVar(value='')
+        self.recipient_entry=ttk.Entry(recipient_box,textvariable=self.recipient,width=16)
+        self.recipient_entry.pack(side='left',fill='x',expand=True,padx=(5,0))
         self.tool.trace_add('write', self._tool_changed)
         self.mark_color.trace_add('write', self._color_changed)
-        self.preview_warning = ttk.Label(tools, text='Prévia: as tarjas ainda não ocultam dados.', wraplength=520)
-        self.preview_warning.grid(row=2, column=0, columnspan=2, sticky='w', pady=(4,0))
-        self.selection_status = tk.StringVar(value='Nenhuma tarja selecionada.')
+        self.preview_warning = ttk.Label(tools, text='Prévia: as tarjas ainda não ocultam dados. O aviso pode cobrir conteúdo do documento.', wraplength=560)
+        self.preview_warning.grid(row=2, column=0, columnspan=3, sticky='w', pady=(1,0))
+        self.selection_status = tk.StringVar(value='Sem seleção.')
         self.selection_label = ttk.Label(tools, textvariable=self.selection_status, anchor='e')
-        self.selection_label.grid(row=2, column=2, sticky='e', padx=(8,0), pady=(4,0))
+        self.selection_label.grid(row=3, column=2, sticky='e', padx=(8,0), pady=(1,0))
+        self.notice_button=ttk.Radiobutton(tools,text='Definir área do aviso',variable=self.tool,
+                                           value='aviso',command=self._tool_changed)
+        self.notice_button.grid(row=3,column=0,sticky='w',pady=(1,0))
+        self.notice_remove_button=ttk.Button(tools,text='Remover área do aviso',command=self.remove_notice)
+        self.notice_remove_button.grid(row=3,column=1,sticky='w',padx=(8,0),pady=(1,0))
+        self.notice_status=tk.StringVar(value='Nenhuma área de aviso definida.')
+        self.notice_status_label=ttk.Label(tools,textvariable=self.notice_status,wraplength=560,justify='left')
+        self.notice_status_label.grid(row=4,column=0,columnspan=3,sticky='w',pady=(1,0))
+        self.notice_warning=self.preview_warning
+        self.recipient.trace_add('write',self._recipient_changed)
 
         viewer = ttk.Frame(self.window, padding=(12, 0, 12, 0))
         viewer.grid(row=3, column=0, sticky='nsew')
@@ -115,7 +139,7 @@ class VisualizadorManual:
         self.canvas.bind('<Delete>', self._delete_key)
         self.canvas.bind('<BackSpace>', self._delete_key)
 
-        page_options = ttk.Frame(self.window, padding=(12, 6, 12, 0))
+        page_options = ttk.Frame(self.window, padding=(12, 2, 12, 0))
         page_options.grid(row=4, column=0, sticky='ew')
         page_options.columnconfigure(1, weight=1)
         self.exclude_button = ttk.Button(page_options, text='Excluir página', command=self.toggle_exclusion)
@@ -125,7 +149,7 @@ class VisualizadorManual:
         self.exclusion_label.grid(row=0, column=1, sticky='ew', padx=(12,0))
 
         self.status = tk.StringVar(value='Abra um PDF para visualizar. Nesta etapa, nenhum arquivo será alterado ou exportado.')
-        self.status_label = ttk.Label(self.window, textvariable=self.status, wraplength=570, padding=(12, 8, 12, 12))
+        self.status_label = ttk.Label(self.window, textvariable=self.status, wraplength=570, padding=(12, 3, 12, 3))
         self.status_label.grid(row=5, column=0, sticky='ew')
         self.window.bind('<Configure>', self._resize_status)
         self._controls()
@@ -134,8 +158,13 @@ class VisualizadorManual:
 
     def _resize_status(self, event):
         if event.widget == self.window:
-            self.status_label.configure(wraplength=max(120, event.width-32))
-            self.exclusion_label.configure(wraplength=max(120, event.width-200))
+            width = self.window.winfo_width()
+            if width <= 1:
+                return
+            self.status_label.configure(wraplength=max(120, width-32))
+            self.exclusion_label.configure(wraplength=max(120, width-200))
+            self.notice_status_label.configure(wraplength=max(120,width-32))
+            self.notice_warning.configure(wraplength=max(120,width-32))
 
     def _viewport(self, axis, *args):
         if self.drag is None:
@@ -171,11 +200,15 @@ class VisualizadorManual:
                    and self.render_request is None and self.page not in self.excluded_pages)
         self.draw_button.configure(state='normal' if editing else 'disabled')
         self.select_button.configure(state='normal' if editing else 'disabled')
+        self.notice_button.configure(state='normal' if editing and self.notice_area is None else 'disabled')
+        removable = usable and self.image is not None and self.render_future is None and self.render_request is None and self.notice_area is not None
+        self.notice_remove_button.configure(state='normal' if removable else 'disabled')
+        self.recipient_entry.configure(state='normal' if not busy and not opening else 'disabled')
         self.color_combo.configure(state='readonly' if editing else 'disabled')
         self.delete_button.configure(state='normal' if editing and self.selected_mark_id is not None else 'disabled')
         self.selection_status.set('Tarja selecionada.' if self.selected_mark_id is not None
-                                  else 'Nenhuma tarja selecionada.')
-        cursor = 'crosshair' if editing and self.tool.get() == 'desenhar' else ''
+                                  else 'Sem seleção.')
+        cursor = 'crosshair' if editing and self.tool.get() in ('desenhar','aviso') else ''
         if self.canvas.cget('cursor') != cursor:
             self.canvas.configure(cursor=cursor)
         if not editing and self.drag is not None:
@@ -205,6 +238,7 @@ class VisualizadorManual:
         elif self.document['total_paginas'] - len(self.excluded_pages) > 1:
             self.excluded_pages.add(self.page)
         self.selected_mark_id = None
+        self._refresh_notice()
         self._redraw_marks()
         self._controls()
 
@@ -216,7 +250,7 @@ class VisualizadorManual:
 
     def _tool_changed(self, *_):
         self._cancel_drag()
-        if self.tool.get() == 'desenhar':
+        if self.tool.get() in ('desenhar','aviso'):
             self.selected_mark_id = None
         self._redraw_marks()
         self._controls()
@@ -239,13 +273,13 @@ class VisualizadorManual:
         return max(0.0, min(width, x)), max(0.0, min(height, y))
 
     def _gesture_valid(self):
-        return bool(self.drag and self._can_edit() and self.tool.get() == 'desenhar'
+        return bool(self.drag and self._can_edit() and self.tool.get() == self.drag['mode']
                     and self.drag['session'] == self.session_id
                     and self.drag['page'] == self.page
                     and self.drag['token'] == self.render_token
                     and self.drag['sha256'] == self.document['sha256']
-                    and self.drag['cor'] in CORES
-                    and self.mark_color.get() == CORES[self.drag['cor']][0])
+                    and (self.drag['mode']=='aviso' or (self.drag['cor'] in CORES
+                         and self.mark_color.get() == CORES[self.drag['cor']][0])))
 
     def _pointer_down(self, event):
         self.canvas.focus_set()
@@ -267,15 +301,16 @@ class VisualizadorManual:
             self._redraw_marks()
             self._controls()
             return 'break'
-        if self.tool.get() != 'desenhar':
+        mode = self.tool.get()
+        if mode not in ('desenhar','aviso') or (mode=='aviso' and self.notice_area is not None):
             return 'break'
-        color = next((key for key, (label, _) in CORES.items() if label == self.mark_color.get()), None)
-        if color is None:
+        color = next((key for key, (label, _) in CORES.items() if label == self.mark_color.get()), None) if mode=='desenhar' else None
+        if mode=='desenhar' and color is None:
             return 'break'
         self.selected_mark_id = None
         self._redraw_marks()
         self.drag = {'session': self.session_id, 'page': self.page, 'token': self.render_token,
-                     'sha256': self.document['sha256'], 'start': point, 'cor': color}
+                     'sha256': self.document['sha256'], 'start': point, 'cor': color, 'mode': mode}
         self._controls()
         return 'break'
 
@@ -298,7 +333,8 @@ class VisualizadorManual:
                                      outline='#ffffff', width=5, tags=('draft',))
         self.canvas.create_rectangle(origin[0] + x0*ESCALA_100, origin[1] + y0*ESCALA_100,
                                      origin[0] + x1*ESCALA_100, origin[1] + y1*ESCALA_100,
-                                     outline='#003b70', width=2, dash=(4, 2), tags=('draft',))
+                                     outline='#7b168d' if self.drag['mode']=='aviso' else '#003b70',
+                                     width=2, dash=(4, 2), tags=('draft',))
         return 'break'
 
     def _pointer_up(self, event):
@@ -314,12 +350,17 @@ class VisualizadorManual:
         x0, y0 = self.drag['start']
         x1, y1 = point
         rect = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
-        color = self.drag['cor']
+        color,mode = self.drag['cor'],self.drag['mode']
         self._cancel_drag()
         if rect[2] > rect[0] and rect[3] > rect[1]:
-            mark = {'id': self.next_mark_id, 'rect': rect, 'cor': color}
-            self.next_mark_id += 1
-            self.marks.setdefault(self.page, []).append(mark)
+            if mode == 'aviso':
+                self.notice_area = {'pagina': self.page, 'rect': rect}
+                self.tool.set('selecionar')
+                self._refresh_notice()
+            else:
+                mark = {'id': self.next_mark_id, 'rect': rect, 'cor': color}
+                self.next_mark_id += 1
+                self.marks.setdefault(self.page, []).append(mark)
         self._redraw_marks()
         self._controls()
         return 'break'
@@ -334,6 +375,7 @@ class VisualizadorManual:
         if not hasattr(self, 'canvas'):
             return
         self.canvas.delete('mark')
+        self.canvas.delete('notice')
         if self.image is None or self.page_image_id is None:
             return
         origin = self.canvas.coords(self.page_image_id)
@@ -349,6 +391,14 @@ class VisualizadorManual:
             selected = mark['id'] == self.selected_mark_id
             self.canvas.create_rectangle(*coords, outline='#005fcc' if selected else '#000000',
                                          width=3 if selected else 2, dash=(5,3) if selected else (), tags=('mark',))
+        if self.notice_area is not None and self.notice_area['pagina'] == self.page:
+            x0,y0,x1,y1 = self.notice_area['rect']
+            coords = (origin[0]+x0*ESCALA_100, origin[1]+y0*ESCALA_100,
+                      origin[0]+x1*ESCALA_100, origin[1]+y1*ESCALA_100)
+            if self.notice_image is not None and self.page not in self.excluded_pages:
+                self.canvas.create_image(coords[0],coords[1],anchor='nw',image=self.notice_image,tags=('notice',))
+            self.canvas.create_rectangle(*coords,outline='#ffffff',width=5,tags=('notice',))
+            self.canvas.create_rectangle(*coords,outline='#7b168d',width=2,dash=(2,3),tags=('notice',))
 
     def delete_selected(self):
         if not self._can_edit() or self.tool.get() != 'selecionar' or self.selected_mark_id is None:
@@ -364,6 +414,78 @@ class VisualizadorManual:
     def _delete_key(self, _event):
         self.delete_selected()
         return 'break'
+
+    def _recipient_changed(self, *_):
+        self._cancel_drag()
+        self._refresh_notice()
+
+    def _cancel_notice_timer(self):
+        if self.notice_after is not None:
+            self.window.after_cancel(self.notice_after)
+            self.notice_after = None
+
+    def _refresh_notice(self):
+        """Invalida resultados antigos e agenda apenas a prévia mais recente."""
+        self.notice_token += 1
+        self._cancel_notice_timer()
+        self.notice_request = None
+        self.notice_image = None
+        self.notice_text = None
+        area = self.notice_area
+        if area is None or self.document is None:
+            self.notice_status.set('Nenhuma área de aviso definida.')
+        elif area['pagina'] in self.excluded_pages:
+            self.notice_status.set(f"Aviso na página {area['pagina']+1} inativo: página excluída. Restaure-a ou remova a área.")
+        elif not self.recipient.get().strip():
+            self.notice_status.set(f"Aviso na página {area['pagina']+1}: informe o destinatário para visualizar.")
+        else:
+            instante = datetime.now().astimezone().replace(second=0,microsecond=0)
+            request = {'token':self.notice_token,'session':self.session_id,'render_token':self.render_token,
+                       'pagina_atual':self.page,'sha256':self.document['sha256'],
+                       'area':(area['pagina'],tuple(area['rect'])), 'destinatario':self.recipient.get(),
+                       'instante':instante.isoformat(), 'data':instante.strftime('%d/%m/%y %H:%M')}
+            self.notice_status.set(f"Preparando prévia do aviso na página {area['pagina']+1}…")
+            self.notice_after = self.window.after(180,lambda req=request:self._queue_notice(req))
+        self._redraw_marks()
+
+    def _queue_notice(self, request):
+        self.notice_after = None
+        if self.closed or request['token'] != self.notice_token:
+            return
+        self.notice_request = request
+        self._start_notice()
+
+    def _start_notice(self):
+        if self.closed or self.ocupado() or self.notice_future is not None or self.notice_request is None:
+            return
+        request = self.notice_request
+        self.notice_request = None
+        rect = request['area'][1]
+        try:
+            future = self.executor().submit(visualizar_aviso, request['destinatario'],
+                                            rect[2]-rect[0], rect[3]-rect[1], request['instante'])
+        except Exception as error:
+            self.notice_status.set(self._message(error))
+            return
+        self.notice_future = (request, future)
+
+    def _notice_current(self, request):
+        return bool(self.document and self.notice_area and request['token']==self.notice_token
+                    and request['session']==self.session_id and request['render_token']==self.render_token
+                    and request['pagina_atual']==self.page and request['sha256']==self.document['sha256']
+                    and request['area']==(self.notice_area['pagina'],tuple(self.notice_area['rect']))
+                    and request['destinatario']==self.recipient.get()
+                    and self.notice_area['pagina'] not in self.excluded_pages)
+
+    def remove_notice(self):
+        if (self.closed or self.ocupado() or self.inspect_future is not None or self.document is None
+                or self.image is None or self.render_future is not None or self.render_request is not None
+                or self.notice_area is None):
+            return
+        self._cancel_drag()
+        self.notice_area = None
+        self._refresh_notice()
+        self._controls()
 
     def choose(self):
         if self.closed or self.ocupado() or self.inspect_future is not None:
@@ -401,6 +523,7 @@ class VisualizadorManual:
         self.page_image_id = None
         self.page = index
         self.render_token += 1
+        self._refresh_notice()
         self.render_request = (self.render_token, self.path, self.document['sha256'], index)
         self.image = None
         self.canvas.delete('all')
@@ -426,6 +549,8 @@ class VisualizadorManual:
         self.marks.clear()
         self.selected_mark_id = None
         self.next_mark_id = 1
+        self.notice_area = None
+        self._refresh_notice()
         self.page_image_id = None
         self.render_token += 1
         self.render_request = None
@@ -466,6 +591,8 @@ class VisualizadorManual:
                 self.marks.clear()
                 self.selected_mark_id = None
                 self.next_mark_id = 1
+                self.notice_area = None
+                self._refresh_notice()
                 self.document, self.path = doc, candidate
                 self.excluded_pages.clear()
                 self.filename.set(str(Path(candidate).name))
@@ -496,15 +623,46 @@ class VisualizadorManual:
                     self.executor_quebrado()
                 except Exception:
                     pass
+        if self.notice_future is not None and self.notice_future[1].done():
+            request, future = self.notice_future
+            self.notice_future = None
+            if self._notice_current(request):
+                try:
+                    result=future.result()
+                    self.notice_image=tk.PhotoImage(master=self.window,data=result['png'])
+                    self.notice_text=result['texto']
+                except Exception as error:
+                    self.notice_image=None
+                    self.notice_text=None
+                    self.notice_status.set(f"Aviso na página {request['area'][0]+1}: {self._message(error)}")
+                else:
+                    self.notice_status.set(f"Aviso na página {request['area'][0]+1}. Prévia: {request['data']}; na geração será usado o horário real.")
+                self._redraw_marks()
+            elif not future.cancelled():
+                try:
+                    future.result()
+                except BrokenProcessPool:
+                    self.executor_quebrado()
+                except Exception:
+                    pass
         self._controls()
         self._start_render()
+        self._start_notice()
         self.window.after(80, self.poll)
 
     def close(self):
         if self.closed:
             return
         self._cancel_drag()
+        self._cancel_notice_timer()
         self.closed = True
+        self.notice_token += 1
+        self.notice_request = None
+        if self.notice_future is not None:
+            self.notice_future[1].cancel()
+        self.notice_area = None
+        self.notice_image = None
+        self.notice_text = None
         self.session_id += 1
         self.marks.clear()
         self.selected_mark_id = None
@@ -523,6 +681,8 @@ class VisualizadorManual:
         self.page_label = None
         self.exclusion_status = None
         self.selection_status = None
+        self.notice_status = None
+        self.recipient = None
         self.tool = None
         self.mark_color = None
         self.status = None

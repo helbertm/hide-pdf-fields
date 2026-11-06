@@ -16,7 +16,9 @@ A etapa experimental permite abrir e visualizar um PDF por vez, com navegação 
 
 É possível desenhar marcações de tarja por página, nas cores Preto, Vermelho escuro, Cinza escuro ou Branco. Para corrigir uma marcação, selecione-a, apague-a e desenhe outra; não há ajuste de posição ou tamanho. As marcações de uma página são preservadas se ela for marcada para exclusão e depois restaurada.
 
-**As marcações manuais são somente uma prévia em memória e ainda não removem dados.** Nenhum arquivo é gerado, nenhuma página é excluída do original e o PDF original não é alterado. Esta etapa ainda não inclui posicionamento de avisos ou geração de PDFs.
+Informe o destinatário e use **Definir área do aviso** na página escolhida. Existe uma área de aviso por documento: para mudar sua posição ou tamanho, use **Remover área do aviso** e desenhe outra. A prévia usa data e hora de exemplo e indica destinatário inválido ou quando o texto completo não cabe, sem reduzir ou truncar o texto. A área pode se sobrepor a conteúdo existente; o usuário é responsável pela posição escolhida. Se a página for marcada para exclusão, a área do aviso permanece guardada, mas inativa até a página ser restaurada ou a área ser removida.
+
+**As tarjas e o aviso manuais são somente prévias em memória e ainda não removem dados.** Nenhum arquivo é gerado, nenhuma página é excluída do original e o PDF original não é alterado. Esta etapa ainda não inclui geração de PDFs.
 
 ## Campos
 
@@ -29,7 +31,7 @@ Endereço e tomador são grupos completos, incluindo seus rótulos internos. Des
 
 Sem nenhum campo selecionado, o arquivo é ignorado sem produzir PDF. Se apenas observações estiverem selecionadas e não forem encontradas, também não há saída. Escolhas ficam congeladas durante o lote. Recarregar restaura todos marcados.
 
-## Aviso com destinatário
+## Aviso com destinatário no modo automático
 
 O destinatário é obrigatório, até 120 caracteres, em uma linha. Acentos portugueses são suportados. Nome e data/hora ficam congelados no início do lote, segundo o relógio local do computador.
 

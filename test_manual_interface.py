@@ -298,6 +298,267 @@ class ManualInterfaceTest(unittest.TestCase):
         self.assertEqual(self.viewer.marks[0],saved)
         self.app.running=False
 
+    def test_aviso_no_tamanho_minimo_com_atualizacao(self):
+        self.root.geometry('900x650')
+        self.app.update_queue.put(('checked',{'version':'v9.0.0','assets':{}}))
+        self.app.poll_update()
+        self.viewer.window.geometry('600x450')
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.viewer.recipient.set('Equipe')
+        self.viewer.tool.set('aviso')
+        self.draw(10,10,250,190)
+        self.pump(lambda:self.viewer.notice_image is not None)
+        self.viewer.excluded_pages.update({1,2})
+        self.viewer._controls()
+        self.root.update()
+        self.assertTrue(self.app.update_button.winfo_ismapped())
+        self.assertIn('Prévia:',self.viewer.notice_status.get())
+        self.assertIn('horário real',self.viewer.notice_status.get())
+        window=self.viewer.window
+        x0,y0=window.winfo_rootx(),window.winfo_rooty()
+        x1,y1=x0+window.winfo_width(),y0+window.winfo_height()
+        for widget in (self.viewer.draw_button,self.viewer.select_button,self.viewer.delete_button,
+                       self.viewer.color_combo,self.viewer.recipient_entry,self.viewer.preview_warning,
+                       self.viewer.selection_label,self.viewer.notice_button,self.viewer.notice_remove_button,
+                       self.viewer.notice_status_label,self.viewer.notice_warning,self.viewer.canvas,
+                       self.viewer.exclude_button,self.viewer.exclusion_label,self.viewer.status_label):
+            self.assertTrue(widget.winfo_ismapped(),str(widget))
+            left,top=widget.winfo_rootx(),widget.winfo_rooty()
+            right,bottom=left+widget.winfo_width(),top+widget.winfo_height()
+            self.assertGreaterEqual(left,x0,str(widget));self.assertGreaterEqual(top,y0,str(widget))
+            self.assertLessEqual(right,x1,str(widget));self.assertLessEqual(bottom,y1,str(widget))
+            if widget is not self.viewer.canvas:
+                self.assertGreaterEqual(widget.winfo_width(),widget.winfo_reqwidth(),str(widget))
+                self.assertGreaterEqual(widget.winfo_height(),widget.winfo_reqheight(),str(widget))
+        self.assertGreaterEqual(self.viewer.canvas.winfo_height(),120)
+        # A long validation error must also fit instead of clipping the controls.
+        self.viewer.recipient.set('😀')
+        self.pump(lambda:'não suportados' in self.viewer.notice_status.get())
+        self.root.update()
+        self.assertGreaterEqual(self.viewer.notice_status_label.winfo_height(),self.viewer.notice_status_label.winfo_reqheight())
+        self.assertGreaterEqual(self.viewer.canvas.winfo_height(),120)
+
+    def prepare_notice(self, recipient='Equipe', coords=(10,10,250,190)):
+        self.viewer.recipient.set(recipient)
+        self.viewer.tool.set('aviso')
+        self.draw(*coords)
+        self.assertIsNotNone(self.viewer.notice_area)
+
+    def test_aviso_sobre_texto_e_tarja_preserva_marcacao_e_dados(self):
+        original=hashlib.sha256(self.source.read_bytes()).hexdigest()
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.draw(10,10,250,190)
+        mark=dict(self.viewer.marks[0][0])
+        self.prepare_notice('João e Márcia')
+        self.pump(lambda:self.viewer.notice_image is not None)
+        self.assertEqual(self.viewer.notice_area['pagina'],0)
+        self.assertEqual(self.viewer.marks[0],[mark])
+        self.assertIn('João e Márcia',self.viewer.notice_text)
+        self.assertIn('Prévia:',self.viewer.notice_status.get())
+        self.assertIn('horário real',self.viewer.notice_status.get())
+        self.assertIn('O aviso pode cobrir conteúdo do documento.',self.viewer.notice_warning.cget('text'))
+        # White notice image is above marked rectangles in the canvas stack.
+        all_items=list(self.viewer.canvas.find_all())
+        notice_images=[item for item in self.viewer.canvas.find_withtag('notice') if self.viewer.canvas.type(item)=='image']
+        self.assertEqual(len(notice_images),1)
+        self.assertGreater(all_items.index(notice_images[0]),max(all_items.index(item) for item in self.viewer.canvas.find_withtag('mark')))
+        # Underlying mark remains selectable/deletable even underneath the notice.
+        self.viewer.tool.set('selecionar')
+        self.mouse('<ButtonPress-1>',40,40);self.mouse('<ButtonRelease-1>',40,40)
+        self.assertEqual(self.viewer.selected_mark_id,mark['id'])
+        self.viewer.delete_button.invoke()
+        self.assertEqual(self.viewer.marks,{})
+        self.assertIsNotNone(self.viewer.notice_area)
+        self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(),original)
+        self.assertEqual(list(self.folder.iterdir()),[self.source])
+
+    def test_aviso_sobre_imagem_e_branco_sem_verificacao_do_fundo(self):
+        source=self.folder/'imagem.pdf'
+        with pdf.open() as d:
+            page=d.new_page(width=200,height=300)
+            pix=pdf.Pixmap(pdf.csRGB,pdf.IRect(0,0,25,25),False);pix.clear_with(0)
+            page.insert_image(pdf.Rect(15,15,150,100),pixmap=pix)
+            d.save(source)
+        before=source.read_bytes()
+        self.viewer.open_path(source);self.pump(lambda:self.viewer.image is not None)
+        self.prepare_notice('Equipe')
+        self.pump(lambda:self.viewer.notice_image is not None)
+        self.assertIsNotNone(self.viewer.notice_area)
+        self.viewer.notice_remove_button.invoke()
+        self.assertIsNone(self.viewer.notice_area)
+        self.viewer.tool.set('aviso')
+        # lower part of page is blank; acceptance is independent of content
+        self.draw(10,150,250,350)
+        self.pump(lambda:self.viewer.notice_image is not None)
+        self.assertEqual(source.read_bytes(),before)
+        self.assertEqual(set(self.folder.iterdir()),{self.source,source})
+
+    def test_aviso_destinatario_invalido_e_120_caracteres(self):
+        self.viewer.open_path(self.source);self.pump(lambda:self.viewer.image is not None)
+        self.prepare_notice('')
+        self.assertIn('informe o destinatário',self.viewer.notice_status.get())
+        for bad in ('A'*121,'😀'):
+            self.viewer.recipient.set(bad)
+            self.pump(lambda:('120 caracteres' in self.viewer.notice_status.get() or 'não suportados' in self.viewer.notice_status.get()))
+            self.assertIsNone(self.viewer.notice_image)
+            self.assertIsNone(self.viewer.notice_text)
+        self.viewer.recipient.set('Á'*120)
+        self.pump(lambda:self.viewer.notice_image is not None)
+        self.assertIn('Á'*120,self.viewer.notice_text)
+        self.assertIsNotNone(self.viewer.notice_area)
+
+    def test_aviso_area_insuficiente_remover_e_refazer(self):
+        self.viewer.open_path(self.source);self.pump(lambda:self.viewer.image is not None)
+        self.prepare_notice('Equipe',coords=(10,10,60,30))
+        self.pump(lambda:('dimensões inválidas' in self.viewer.notice_status.get() or 'não cabe' in self.viewer.notice_status.get()))
+        self.assertIsNone(self.viewer.notice_image)
+        self.assertIsNone(self.viewer.notice_text)
+        self.assertIsNotNone(self.viewer.notice_area)
+        self.assertIn('disabled',self.viewer.notice_button.state())
+        self.viewer.notice_remove_button.invoke()
+        self.assertIsNone(self.viewer.notice_area)
+        self.assertNotIn('disabled',self.viewer.notice_button.state())
+        self.prepare_notice('Equipe')
+        self.pump(lambda:self.viewer.notice_image is not None)
+        self.assertIn('Equipe',self.viewer.notice_text)
+
+    def test_aviso_navegar_excluir_restaurar_remover(self):
+        self.viewer.open_path(self.source);self.pump(lambda:self.viewer.image is not None)
+        self.prepare_notice('Equipe')
+        self.pump(lambda:self.viewer.notice_image is not None)
+        area=dict(self.viewer.notice_area)
+        self.viewer.go(1)
+        self.pump(lambda:self.viewer.image is not None and self.viewer.page==1)
+        self.assertEqual(self.viewer.notice_area,area)
+        self.assertEqual(self.viewer.canvas.find_withtag('notice'),())
+        self.viewer.go(-1)
+        self.pump(lambda:self.viewer.image is not None and self.viewer.page==0 and self.viewer.notice_image is not None)
+        self.viewer.toggle_exclusion()
+        self.assertEqual(self.viewer.notice_area,area)
+        self.assertIn('inativo',self.viewer.notice_status.get())
+        self.assertIsNone(self.viewer.notice_image)
+        self.assertNotIn('disabled',self.viewer.notice_remove_button.state())
+        self.viewer.toggle_exclusion()
+        self.pump(lambda:self.viewer.notice_image is not None)
+        self.viewer.toggle_exclusion()
+        self.viewer.notice_remove_button.invoke()
+        self.assertIsNone(self.viewer.notice_area)
+        self.assertIn('disabled',self.viewer.notice_button.state())
+        self.viewer.toggle_exclusion()
+        self.assertNotIn('disabled',self.viewer.notice_button.state())
+
+    def test_aviso_cropbox_rolagem_arrasto_inverso_e_limites(self):
+        from manual_pdf import ESCALA_100
+        source=self.folder/'recorte_aviso.pdf'
+        with pdf.open() as d:
+            page=d.new_page(width=1100,height=1500)
+            page.set_cropbox(pdf.Rect(50,60,1050,1460));d.save(source)
+        self.viewer.window.geometry('640x480')
+        self.viewer.open_path(source);self.pump(lambda:self.viewer.image is not None)
+        canvas=self.viewer.canvas
+        canvas.xview_moveto(.25);canvas.yview_moveto(.30);self.root.update()
+        origin=canvas.coords(self.viewer.page_image_id)
+        expected=((canvas.canvasx(35)-origin[0])/ESCALA_100,(canvas.canvasy(45)-origin[1])/ESCALA_100)
+        self.viewer.recipient.set('Equipe');self.viewer.tool.set('aviso')
+        self.draw(95,105,35,45)
+        rect=self.viewer.notice_area['rect']
+        self.assertAlmostEqual(rect[0],expected[0],places=5)
+        self.assertAlmostEqual(rect[1],expected[1],places=5)
+        self.assertAlmostEqual(rect[2]-rect[0],60/ESCALA_100,places=5)
+        self.assertAlmostEqual(rect[3]-rect[1],60/ESCALA_100,places=5)
+        self.assertEqual(self.viewer.notice_area['pagina'],0)
+
+    def test_aviso_resposta_atrasada_destinatario_e_remocao(self):
+        from manual_pdf import visualizar_aviso
+        class ControlledExecutor:
+            def __init__(self):self.tasks=[]
+            def submit(self,func,*args):
+                future=concurrent.futures.Future();self.tasks.append((func.__name__,args,future));return future
+        self.viewer.open_path(self.source);self.pump(lambda:self.viewer.image is not None)
+        executor=ControlledExecutor();self.viewer.executor=lambda:executor
+        self.prepare_notice('Nome antigo')
+        self.pump(lambda:len(executor.tasks)==1)
+        task=executor.tasks[0]
+        self.assertEqual(task[0],'visualizar_aviso')
+        self.viewer.recipient.set('Nome novo')
+        task[2].set_result(visualizar_aviso(*task[1]))
+        self.viewer.poll()
+        self.assertIsNone(self.viewer.notice_image)
+        self.assertIsNone(self.viewer.notice_text)
+        self.pump(lambda:len(executor.tasks)==2)
+        task2=executor.tasks[1]
+        task2[2].set_result(visualizar_aviso(*task2[1]))
+        self.viewer.poll()
+        self.assertIn('Nome novo',self.viewer.notice_text)
+        self.assertNotIn('Nome antigo',self.viewer.notice_text)
+        self.viewer.recipient.set('Resposta que será descartada')
+        self.pump(lambda:len(executor.tasks)==3)
+        task3=executor.tasks[2]
+        self.viewer.remove_notice()
+        task3[2].set_result(visualizar_aviso(*task3[1]))
+        self.viewer.poll()
+        self.assertIsNone(self.viewer.notice_area)
+        self.assertIsNone(self.viewer.notice_image)
+        self.assertIsNone(self.viewer.notice_text)
+
+    def test_aviso_resposta_atrasada_de_pagina_anterior(self):
+        from manual_pdf import visualizar_aviso
+        class ControlledExecutor:
+            def __init__(self):self.tasks=[]
+            def submit(self,func,*args):
+                future=concurrent.futures.Future();self.tasks.append((func.__name__,args,future));return future
+        self.viewer.open_path(self.source);self.pump(lambda:self.viewer.image is not None)
+        executor=ControlledExecutor();self.viewer.executor=lambda:executor
+        self.prepare_notice('Equipe')
+        self.pump(lambda:len(executor.tasks)==1)
+        old=executor.tasks[0]
+        self.viewer.go(1)
+        self.assertEqual(executor.tasks[1][0],'renderizar')
+        old[2].set_result(visualizar_aviso(*old[1]))
+        self.viewer.poll()
+        self.assertIsNone(self.viewer.notice_image)
+        self.assertIsNone(self.viewer.notice_text)
+        pix=pdf.Pixmap(pdf.csRGB,pdf.IRect(0,0,400,267),False);pix.clear_with(255)
+        executor.tasks[1][2].set_result(pix.tobytes('png'))
+        self.viewer.poll()
+        self.assertEqual(self.viewer.page,1)
+        self.assertEqual(self.viewer.canvas.find_withtag('notice'),())
+        self.assertEqual(self.viewer.notice_area['pagina'],0)
+
+    def test_area_aviso_substituicao_recusada_preserva_valida_limpa(self):
+        self.viewer.open_path(self.source);self.pump(lambda:self.viewer.image is not None)
+        self.prepare_notice('Equipe');self.pump(lambda:self.viewer.notice_image is not None)
+        area=dict(self.viewer.notice_area);texto=self.viewer.notice_text
+        invalid=self.folder/'aviso_rotacionado.pdf'
+        with pdf.open() as d:
+            d.new_page().set_rotation(90);d.save(invalid)
+        with patch('manual_interface.messagebox.showerror'):
+            self.viewer.open_path(invalid);self.pump(lambda:self.viewer.inspect_future is None)
+        self.assertEqual(self.viewer.notice_area,area)
+        self.assertEqual(self.viewer.notice_text,texto)
+        replacement=self.folder/'aviso_novo.pdf'
+        with pdf.open() as d:
+            d.new_page(width=200,height=300);d.save(replacement)
+        self.viewer.open_path(replacement)
+        self.pump(lambda:self.viewer.path==str(replacement) and self.viewer.image is not None)
+        self.assertIsNone(self.viewer.notice_area)
+        self.assertIsNone(self.viewer.notice_image)
+        self.assertIsNone(self.viewer.notice_text)
+
+    def test_area_aviso_limpa_ao_invalidar_original(self):
+        self.viewer.open_path(self.source);self.pump(lambda:self.viewer.image is not None)
+        self.prepare_notice('Equipe');self.pump(lambda:self.viewer.notice_image is not None)
+        with pdf.open(self.source) as d:
+            d.new_page();data=d.tobytes()
+        self.source.write_bytes(data)
+        with patch('manual_interface.messagebox.showerror'):
+            self.viewer.go(1);self.pump(lambda:self.viewer.document is None)
+        self.assertIsNone(self.viewer.notice_area)
+        self.assertIsNone(self.viewer.notice_image)
+        self.assertIsNone(self.viewer.notice_text)
+
     def test_cursor_reflete_modo_e_possibilidade_de_editar(self):
         self.assertNotEqual(self.viewer.canvas.cget('cursor'),'crosshair')
         self.viewer.open_path(self.source)
@@ -600,7 +861,7 @@ class ManualInterfaceTest(unittest.TestCase):
         self.viewer.path=str(self.source)
         self.viewer.request_page(0)
         self.assertIsNotNone(self.viewer.render_future)
-        tracked={id(self.viewer.filename),id(self.viewer.page_label),id(self.viewer.status),id(self.viewer.exclusion_status),id(self.viewer.selection_status),id(self.viewer.tool),id(self.viewer.mark_color)}
+        tracked={id(self.viewer.filename),id(self.viewer.page_label),id(self.viewer.status),id(self.viewer.exclusion_status),id(self.viewer.selection_status),id(self.viewer.notice_status),id(self.viewer.recipient),id(self.viewer.tool),id(self.viewer.mark_color)}
         destroyed=[]
         original_del=tk.Variable.__del__
         def check_thread(variable):
