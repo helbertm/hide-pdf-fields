@@ -39,6 +39,47 @@ class ManualPdfTest(unittest.TestCase):
                              (math.ceil(largura * ESCALA_100), math.ceil(altura * ESCALA_100)))
         self.assertEqual(self.path.read_bytes(), antes)
 
+    def test_inventario_de_recursos_sem_expor_valores(self):
+        with pdf.open() as doc:
+            page = doc.new_page()
+            page.insert_text((30, 30), 'VALOR PRIVADO SINTETICO')
+            page.insert_link({'kind': pdf.LINK_URI, 'from': pdf.Rect(30,40,100,60), 'uri': 'https://example.org'})
+            page.add_text_annot((50,100), 'COMENTARIO SINTETICO')
+            widget = pdf.Widget()
+            widget.field_name = 'campo_sintetico'
+            widget.field_type = pdf.PDF_WIDGET_TYPE_TEXT
+            widget.rect = pdf.Rect(30,130,180,150)
+            page.add_widget(widget)
+            doc.embfile_add('anexo_sintetico.txt', b'dados')
+            doc.set_toc([[1,'TITULO SINTETICO',1]])
+            doc.save(self.path)
+        before = self.path.read_bytes()
+        info = inspecionar(self.path)
+        self.assertEqual(set(info['recursos']), {'texto selecionável','links','formulários',
+                                                  'anotações','anexos','marcadores'})
+        self.assertNotIn('PRIVADO', repr(info))
+        self.assertNotIn('example.org', repr(info))
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_inventario_nao_inventa_recursos(self):
+        with pdf.open() as doc:
+            doc.new_page()
+            doc.save(self.path)
+        self.assertEqual(inspecionar(self.path)['recursos'], [])
+
+    def test_inventario_reconhece_campo_de_assinatura(self):
+        with pdf.open() as doc:
+            page = doc.new_page()
+            widget = pdf.Widget()
+            widget.field_name = 'assinatura_sintetica'
+            widget.field_type = pdf.PDF_WIDGET_TYPE_SIGNATURE
+            widget.rect = pdf.Rect(30,30,180,50)
+            page.add_widget(widget)
+            doc.save(self.path)
+        recursos = inspecionar(self.path)['recursos']
+        self.assertIn('formulários', recursos)
+        self.assertIn('assinaturas ou campos de assinatura', recursos)
+
     def test_rotacao_em_qualquer_pagina_recusada(self):
         self.criar()
         with pdf.open(self.path) as doc:

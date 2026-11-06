@@ -1,6 +1,7 @@
 """Verificações de interface nativa, somente com PDFs sintéticos."""
 import concurrent.futures
 from concurrent.futures.process import BrokenProcessPool
+from datetime import datetime, timezone
 import hashlib
 import gc
 import os
@@ -344,6 +345,86 @@ class ManualInterfaceTest(unittest.TestCase):
         self.viewer.tool.set('aviso')
         self.draw(*coords)
         self.assertIsNotNone(self.viewer.notice_area)
+
+    def test_geracao_e_conferencia_preservam_editor_e_verificam_arquivo(self):
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.draw(15,15,80,80)
+        self.prepare_notice()
+        original_hash=hashlib.sha256(self.source.read_bytes()).hexdigest()
+        original_marks=repr(self.viewer.marks)
+        original_notice=dict(self.viewer.notice_area)
+        output=self.folder/'resultado.pdf'
+        before_dialog=datetime(2026,1,1,12,0,tzinfo=timezone.utc)
+        after_confirmation=datetime(2026,1,1,12,7,tzinfo=timezone.utc)
+        with patch('manual_interface.filedialog.asksaveasfilename',return_value=str(output)), \
+             patch('manual_interface.messagebox.askyesno',return_value=True), \
+             patch('manual_interface.datetime') as clock:
+            clock.now.side_effect=[before_dialog,after_confirmation]
+            self.viewer.generate()
+            self.assertTrue(self.viewer.exporting)
+            self.assertEqual(self.viewer.export_snapshot['instante'],after_confirmation.astimezone().isoformat())
+        with patch('manual_interface.messagebox.showerror'):
+            self.pump(lambda:self.viewer.result_viewer is not None,timeout=60)
+        result=self.viewer.result_viewer
+        self.pump(lambda:result.image is not None,timeout=60)
+        result.window.geometry('600x450')
+        self.root.update()
+        def check_bounds():
+            window=result.window
+            left,top=window.winfo_rootx(),window.winfo_rooty()
+            right,bottom=left+window.winfo_width(),top+window.winfo_height()
+            for widget in (result.prev,result.next,result.status_label,result.return_button,result.canvas):
+                self.assertTrue(widget.winfo_ismapped())
+                self.assertGreaterEqual(widget.winfo_rootx(),left)
+                self.assertGreaterEqual(widget.winfo_rooty(),top)
+                self.assertLessEqual(widget.winfo_rootx()+widget.winfo_width(),right)
+                self.assertLessEqual(widget.winfo_rooty()+widget.winfo_height(),bottom)
+                if widget is not result.canvas:
+                    self.assertGreaterEqual(widget.winfo_width(),widget.winfo_reqwidth())
+                    self.assertGreaterEqual(widget.winfo_height(),widget.winfo_reqheight())
+        check_bounds()
+        self.assertTrue(output.exists())
+        self.assertEqual(result.label.get(),'Resultado 1 de 3 · original 1')
+        self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(),original_hash)
+        self.assertEqual(repr(self.viewer.marks),original_marks)
+        self.assertEqual(self.viewer.notice_area,original_notice)
+        self.assertEqual(self.viewer.recipient.get(),'Equipe')
+        saved_result=dict(result.resultado,limpeza_pendente=True)
+        result.close()
+        self.viewer._finish_export(resultado=saved_result)
+        result=self.viewer.result_viewer
+        self.pump(lambda:result.image is not None,timeout=60)
+        self.assertIn('PDF salvo',self.viewer.status.get())
+        self.assertIn('temporário adicional',result.status.get())
+        result.window.geometry('600x450');self.root.update();check_bounds()
+        result.go(1)
+        self.pump(lambda:result.image is not None and result.page==1)
+        self.assertEqual(result.label.get(),'Resultado 2 de 3 · original 2')
+        output.write_bytes(output.read_bytes()+b'alterado')
+        result.go(1)
+        self.pump(lambda:'Não foi possível conferir' in result.status.get())
+        self.assertEqual(result.label.get(),'Resultado 3 de 3 · original 3')
+        self.root.update()
+        check_bounds()
+        self.assertIsNone(result.image)
+        result.close()
+        self.assertEqual(repr(self.viewer.marks),original_marks)
+
+    def test_cancelamento_e_destino_existente_preservam_escolhas(self):
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.prepare_notice()
+        notice=dict(self.viewer.notice_area)
+        with patch('manual_interface.filedialog.asksaveasfilename',return_value=''):
+            self.viewer.generate()
+        self.assertEqual(self.viewer.notice_area,notice)
+        with patch('manual_interface.filedialog.asksaveasfilename',return_value=str(self.source)), \
+             patch('manual_interface.messagebox.showerror') as error:
+            self.viewer.generate()
+        error.assert_called_once()
+        self.assertFalse(self.viewer.exporting)
+        self.assertEqual(self.viewer.notice_area,notice)
 
     def test_aviso_sobre_texto_e_tarja_preserva_marcacao_e_dados(self):
         original=hashlib.sha256(self.source.read_bytes()).hexdigest()

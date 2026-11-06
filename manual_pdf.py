@@ -75,13 +75,56 @@ def _inspecionar_documento(documento):
         raise ManualPdfErro('Não foi possível inspecionar todas as páginas do PDF.') from None
 
 
+
+def _identificar_recursos(documento):
+    """Retorna apenas categorias detectadas; não expõe dados do documento."""
+    encontrados = set()
+    try:
+        if documento.embfile_count():
+            encontrados.add('anexos')
+        if documento.get_toc():
+            encontrados.add('marcadores')
+        if documento.is_form_pdf:
+            encontrados.add('formulários')
+        # SigFlags sinaliza presença potencial de campos de assinatura; não
+        # determina sozinho se alguma assinatura é válida ou foi aplicada.
+        sigflags = documento.get_sigflags()
+        if sigflags >= 0 and sigflags & 1:
+            encontrados.add('assinaturas ou campos de assinatura')
+        catalogo = documento.pdf_catalog()
+        struct_type, _ = documento.xref_get_key(catalogo, 'StructTreeRoot')
+        if struct_type not in ('null', 'none'):
+            encontrados.add('estrutura de acessibilidade')
+        metadados = documento.metadata or {}
+        if any(metadados.get(k) for k in ('title','author','subject','keywords','creator','producer','creationDate','modDate')) or documento.get_xml_metadata():
+            encontrados.add('metadados')
+        for pagina in documento:
+            if 'texto selecionável' not in encontrados and pagina.get_text('text').strip():
+                encontrados.add('texto selecionável')
+            if pagina.get_links():
+                encontrados.add('links')
+            for annotation in pagina.annots() or ():
+                encontrados.add('anotações')
+                if annotation.type[1] == 'FileAttachment':
+                    encontrados.add('anexos')
+            for widget in pagina.widgets() or ():
+                encontrados.add('formulários')
+                if widget.field_type == pdf.PDF_WIDGET_TYPE_SIGNATURE:
+                    encontrados.add('assinaturas ou campos de assinatura')
+    except Exception:
+        raise ManualPdfErro('Não foi possível verificar os recursos do PDF.') from None
+    ordem = ('texto selecionável', 'links', 'formulários', 'assinaturas ou campos de assinatura',
+             'anotações', 'anexos', 'marcadores', 'estrutura de acessibilidade', 'metadados')
+    return [nome for nome in ordem if nome in encontrados]
+
 def inspecionar(caminho):
     """Valida o documento completo sem alterá-lo; devolve hash e geometria."""
     dados = _ler(caminho)
     with _abrir(dados) as documento:
         paginas = _inspecionar_documento(documento)
+        recursos = _identificar_recursos(documento)
     return {'sha256': hashlib.sha256(dados).hexdigest(),
-            'total_paginas': len(paginas), 'paginas': paginas}
+            'total_paginas': len(paginas), 'paginas': paginas, 'recursos': recursos}
 
 
 def renderizar(caminho, sha256, indice):

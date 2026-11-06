@@ -6,6 +6,7 @@ import pymupdf
 import tkinter
 import manual_pdf
 import manual_interface
+import manual_export
 import interface
 import lote
 import tarjar

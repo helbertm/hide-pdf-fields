@@ -32,11 +32,11 @@ Todos os campos começam marcados. ZIP, documentos de texto e imagens não são 
 
 ## Visualizador manual em desenvolvimento
 
-Esta linha de desenvolvimento contém um visualizador manual experimental: é possível abrir um PDF por vez, navegar em visualização fixa de 100%, marcar páginas para exclusão de um futuro resultado ou restaurá-las e desenhar marcações de tarja em cada página. Pelo menos uma página deve permanecer marcada para inclusão. As quatro cores disponíveis são Preto, Vermelho escuro, Cinza escuro e Branco. Uma marcação pode ser selecionada e apagada; para corrigi-la, apague-a e desenhe outra. As marcações são preservadas ao excluir e restaurar uma página.
+Esta linha de desenvolvimento contém um visualizador manual experimental: é possível abrir um PDF por vez, navegar em visualização fixa de 100%, marcar páginas para exclusão do resultado ou restaurá-las e desenhar marcações de tarja em cada página. Pelo menos uma página deve permanecer marcada para inclusão. As quatro cores disponíveis são Preto, Vermelho escuro, Cinza escuro e Branco. Uma marcação pode ser selecionada e apagada; para corrigi-la, apague-a e desenhe outra. As marcações são preservadas ao excluir e restaurar uma página.
 
 Também é possível informar o destinatário e definir ou remover uma área de aviso em uma página escolhida, com prévia e indicação se o texto não couber. Há uma área de aviso por documento. A posição escolhida pode se sobrepor ao conteúdo; a escolha é de responsabilidade do usuário. Se a página do aviso for marcada para exclusão, a posição fica inativa e é preservada caso a página seja restaurada.
 
-**As tarjas e o aviso no modo manual são apenas prévias em memória: ainda não removem dados do PDF.** Nenhum arquivo é gerado e o original não é alterado. Páginas com rotação configurada são recusadas. O visualizador ainda não gera PDFs e não constitui uma release.
+O botão **Gerar PDF…** cria uma cópia rasterizada com as páginas mantidas, as tarjas e o aviso, sem texto selecionável. A janela sugere salvar na pasta do original, com nome derivado do destinatário e da data; escolha outro destino se preferir. Antes de gerar, confirme a perda de recursos informada na tela. O original e arquivos existentes não são sobrescritos. Após a geração, confira o arquivo salvo; ao voltar ao editor, suas marcações e escolhas permanecem para uma nova geração. Páginas com rotação configurada são recusadas. Esta funcionalidade ainda está em desenvolvimento; a etapa 6 e sua publicação ainda não ocorreram.
 
 ## Desenvolvimento e verificações
 

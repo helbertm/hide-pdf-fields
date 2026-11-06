@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib
 import zipfile
 root=Path(__file__).resolve().parents[1]
-files=['assets/icon.png','assets/icon.ico','interface.py','manual_pdf.py','manual_interface.py','atualizacao.py','tarjar.py','lote.py','requirements-win.lock','README.md','USO.md','THIRD_PARTY.md','scripts/smoke.py']
+files=['assets/icon.png','assets/icon.ico','interface.py','manual_pdf.py','manual_interface.py','manual_export.py','atualizacao.py','tarjar.py','lote.py','requirements-win.lock','README.md','USO.md','THIRD_PARTY.md','scripts/smoke.py']
 out=root/'dist';out.mkdir(exist_ok=True)
 archive=out/'hide-pdf-fields-windows.zip'
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as z:

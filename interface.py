@@ -49,6 +49,8 @@ class Aplicativo:
         self.resize_after = None
         self.pool_broken = False
         self.manual_viewer = None
+        self.manual_exporting = False
+        self._manual_export_states = []
         self.running = False
         self.updating = False
         self.update_info = None
@@ -193,8 +195,37 @@ class Aplicativo:
     def _manual_executor_broken(self):
         self.pool_broken=True
 
+    def _manual_export_started(self):
+        # O worker é compartilhado; nenhuma ação concorrente deve encerrar o
+        # aplicativo ou substituir controles enquanto o PDF está sendo salvo.
+        if self.manual_exporting:
+            return
+        widgets = [self.run_button, self.load_button, self.manual_button,
+                   self.color_combo, self.zoom_button, *self.path_widgets]
+        self._manual_export_states = [(widget, str(widget.cget('state'))) for widget in widgets]
+        self._manual_tree_disabled = 'disabled' in self.tree.state()
+        self.manual_exporting = True
+        for widget in widgets:
+            widget.configure(state='disabled')
+        self.tree.state(['disabled'])
+        self.update_button.configure(state='disabled')
+        self._show_fields()
+
+    def _manual_export_finished(self):
+        if not self.manual_exporting:
+            return
+        self.manual_exporting = False
+        for widget, state in self._manual_export_states:
+            widget.configure(state=state)
+        self._manual_export_states = []
+        if not self._manual_tree_disabled:
+            self.tree.state(['!disabled'])
+        if self.update_info:
+            self.update_button.configure(state='normal')
+        self._show_fields()
+
     def open_manual(self):
-        if self.running or self.updating or self.closing:
+        if self.running or self.updating or self.closing or self.manual_exporting:
             return
         if self.manual_viewer is not None and not self.manual_viewer.closed:
             self.manual_viewer.window.lift()
@@ -208,9 +239,12 @@ class Aplicativo:
             self.root, self._manual_executor,
             lambda: self.running or self.updating or self.closing,
             finished, self._manual_executor_broken,
+            ao_iniciar_exportacao=self._manual_export_started,
+            ao_encerrar_exportacao=self._manual_export_finished,
         )
 
     def choose(self,var):
+        if self.manual_exporting:return
         value=filedialog.askdirectory(parent=self.root,title='Escolha a pasta')
         if value:var.set(value)
 
@@ -239,6 +273,7 @@ class Aplicativo:
         self.detail.set('As pastas mudaram. Carregue a lista novamente.')
 
     def load(self):
+        if self.manual_exporting:return
         try:
             if not self.source.get().strip() or not self.target.get().strip():
                 raise Recusado('Escolha as pastas de entrada e de saída.')
@@ -288,7 +323,7 @@ class Aplicativo:
         self.original_title.set('Original')
         self.detail_label.configure(foreground='#d32f2f' if job.status=='recusado' else '')
         self.detail.set(f'{Path(job.origem).name} — {LABELS[job.status]}. {job.mensagem}')
-        self.zoom_button.configure(state='normal')
+        self.zoom_button.configure(state='disabled' if self.manual_exporting else 'normal')
         self._show_fields()
         if not zoom:self._clear_previews('Carregando prévia…')
         canvas=self.canvases['antes']
@@ -306,7 +341,7 @@ class Aplicativo:
         job=self.jobs[i]
         defaults=list(CAMPOS[job.tipo])
         chosen=self.choices.get(i,defaults)
-        editable=not self.running and not self.updating and job.status=='aguardando'
+        editable=not self.running and not self.updating and not self.manual_exporting and job.status=='aguardando'
         buttons=ttk.Frame(self.fields_frame);buttons.pack(fill='x',pady=(0,8))
         for title,values in [('Marcar todos',defaults),('Desmarcar todos',[])]:
             ttk.Button(buttons,text=title,command=lambda v=values:self._set_fields(v),state='normal' if editable else 'disabled').pack(side='left',padx=(0,4))
@@ -323,10 +358,10 @@ class Aplicativo:
         if i is None or not self.jobs[i].tipo:return
         job=self.jobs[i];defaults=list(CAMPOS[job.tipo])
         hidden=len(self.choices.get(i,defaults))
-        editable=not self.running and not self.updating and job.status=='aguardando'
+        editable=not self.running and not self.updating and not self.manual_exporting and job.status=='aguardando'
         self.fields_summary.set(f'{hidden} grupo(s) a ocultar · {len(defaults)-hidden} a manter visíveis.' +
                                 ('\nNenhum marcado: arquivo será ignorado.' if not hidden else '') +
-                                ('\nPara alterar, recarregue em outro destino.' if not editable and not self.running else ''))
+                                ('\nPara alterar, recarregue em outro destino.' if not editable and not self.running and not self.manual_exporting else ''))
 
     def _set_fields(self,values):
         for key,var in self.field_vars.items():var.set(key in values)
@@ -334,7 +369,7 @@ class Aplicativo:
 
     def _fields_changed(self):
         i=self.selected()
-        if i is None or self.running or self.updating or self.jobs[i].status!='aguardando':return
+        if i is None or self.running or self.updating or self.manual_exporting or self.jobs[i].status!='aguardando':return
         self.choices[i]=[key for key,var in self.field_vars.items() if var.get()]
         self._field_summary()
         any_selected=any(self.choices.get(j,None)!=[] for j in range(len(self.jobs)))
@@ -396,7 +431,7 @@ class Aplicativo:
         ttk.Label(window,text='Use as abas Original / Resultado tarjado e as barras de rolagem para conferir os detalhes.').pack(pady=8)
 
     def start(self):
-        if not self.jobs or self.running or self.updating:return
+        if not self.jobs or self.running or self.updating or self.manual_exporting:return
         try:self.batch_recipient=validar_destinatario(self.recipient.get())
         except Recusado as e:
             messagebox.showerror('Destinatário necessário',str(e),parent=self.root)
@@ -514,7 +549,7 @@ class Aplicativo:
         threading.Thread(target=work,daemon=True).start()
 
     def begin_update(self):
-        if self.running or self.updating or not self.update_info:return
+        if self.running or self.updating or self.manual_exporting or not self.update_info:return
         release=copy.deepcopy(self.update_info)
         if not messagebox.askyesno('Atualizar aplicativo?',f"Atualizar para {release['version']}?\n\nO aplicativo será encerrado para instalar a atualização. Os PDFs gerados serão preservados. As seleções atuais precisarão ser refeitas.",parent=self.root):return
         controls=[self.run_button,self.load_button,self.color_combo,self.manual_button,*self.path_widgets]
@@ -547,7 +582,7 @@ class Aplicativo:
                     self.update_checking=False
                     if value:
                         self.update_info=value
-                        self.update_button.configure(text='Atualizar para '+value['version'],state='disabled' if self.running or self.updating else 'normal')
+                        self.update_button.configure(text='Atualizar para '+value['version'],state='disabled' if self.running or self.updating or self.manual_exporting else 'normal')
                         self.update_button.grid(row=0,column=1,sticky='e',padx=(8,0))
                 elif event=='progress':self.update_progress.configure(value=value)
                 elif event=='failed':self.update_failed()
@@ -583,6 +618,8 @@ class Aplicativo:
             setattr(self,name,None)
 
     def close(self):
+        if self.manual_exporting and not self.closing:
+            messagebox.showinfo('Geração em andamento','Aguarde a conclusão da geração antes de encerrar.',parent=self.root);return
         if self.updating and not self.closing:
             messagebox.showinfo('Atualização em andamento','Aguarde o fim da preparação da atualização.',parent=self.root);return
         if self.running:

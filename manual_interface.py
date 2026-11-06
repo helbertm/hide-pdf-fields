@@ -1,5 +1,8 @@
 """Visualizador manual de PDFs: etapa inicial somente de leitura."""
 from pathlib import Path
+import copy
+import re
+import unicodedata
 from datetime import datetime
 from concurrent.futures.process import BrokenProcessPool
 import tkinter as tk
@@ -7,17 +10,153 @@ from tkinter import filedialog, messagebox, ttk
 
 from manual_pdf import ESCALA_100, ManualPdfErro, inspecionar, renderizar, visualizar_aviso
 from tarjar import CORES
+from manual_export import ManualExportErro, exportar
+
+
+def _nome_seguro(texto):
+    texto = unicodedata.normalize('NFKD', texto).encode('ascii','ignore').decode('ascii')
+    return re.sub(r'[^A-Za-z0-9_]', '', re.sub(r'\s+', '_', texto)).strip('_')
+
+
+class ConferenciaManual:
+    """Navega exclusivamente no PDF efetivamente salvo e vinculado ao hash."""
+    def __init__(self, parent, executor, resultado, ao_fechar=lambda: None, executor_quebrado=lambda: None):
+        self.executor=executor
+        self.executor_quebrado=executor_quebrado
+        self.resultado=copy.deepcopy(resultado)
+        self.ao_fechar=ao_fechar
+        self.closed=False
+        self.page=0
+        self.token=0
+        self.future=None
+        self.request=None
+        self.image=None
+        self.window=tk.Toplevel(parent)
+        self.window.title('Conferência — resultado salvo')
+        self.window.geometry('900x700');self.window.minsize(600,450)
+        self.window.protocol('WM_DELETE_WINDOW',self.close)
+        self.window.columnconfigure(0,weight=1);self.window.rowconfigure(2,weight=1)
+        header=ttk.Frame(self.window,padding=(12,10));header.grid(row=0,column=0,sticky='ew')
+        ttk.Label(header,text='Resultado salvo:').pack(side='left')
+        self.filename=tk.StringVar(value=Path(resultado['destino']).name)
+        ttk.Entry(header,textvariable=self.filename,state='readonly').pack(side='left',fill='x',expand=True,padx=8)
+        nav=ttk.Frame(self.window,padding=(12,0,12,5));nav.grid(row=1,column=0,sticky='ew')
+        self.prev=ttk.Button(nav,text='Anterior',command=lambda:self.go(-1));self.prev.pack(side='left')
+        self.label=tk.StringVar(value='Carregando resultado…')
+        ttk.Label(nav,textvariable=self.label).pack(side='left',padx=10)
+        self.next=ttk.Button(nav,text='Próxima',command=lambda:self.go(1));self.next.pack(side='left')
+        box=ttk.Frame(self.window,padding=(12,0));box.grid(row=2,column=0,sticky='nsew')
+        box.columnconfigure(0,weight=1);box.rowconfigure(0,weight=1)
+        self.canvas=tk.Canvas(box,background='#e9ecef',takefocus=True)
+        self.canvas.grid(row=0,column=0,sticky='nsew')
+        sy=ttk.Scrollbar(box,orient='vertical',command=self.canvas.yview);sy.grid(row=0,column=1,sticky='ns')
+        sx=ttk.Scrollbar(box,orient='horizontal',command=self.canvas.xview);sx.grid(row=1,column=0,sticky='ew')
+        self.canvas.configure(yscrollcommand=sy.set,xscrollcommand=sx.set)
+        self.canvas.bind('<MouseWheel>',self._wheel)
+        self.canvas.bind('<Shift-MouseWheel>',self._wheel_x)
+        self.canvas.bind('<Button-4>',lambda e:self._scroll('y',-3))
+        self.canvas.bind('<Button-5>',lambda e:self._scroll('y',3))
+        for key,axis,amount in [('<Up>','y',-1),('<Down>','y',1),('<Left>','x',-1),('<Right>','x',1)]:
+            self.canvas.bind(key,lambda event,a=axis,n=amount:self._scroll(a,n))
+        self.canvas.bind('<Button-1>',lambda e:self.canvas.focus_set())
+        foot=ttk.Frame(self.window,padding=(12,8));foot.grid(row=3,column=0,sticky='ew')
+        self.return_button=ttk.Button(foot,text='Voltar ao editor',command=self.close)
+        self.return_button.pack(side='right')
+        ttk.Label(foot,text='Confira todas as páginas antes de compartilhar.',wraplength=450).pack(side='left')
+        self.status=tk.StringVar(value=('PDF salvo. Um arquivo temporário adicional pode permanecer na pasta de destino.'
+                                        if resultado.get('limpeza_pendente') else ''))
+        self.status_label=ttk.Label(self.window,textvariable=self.status,justify='left',padding=(12,0,12,8))
+        self.status_label.grid(row=4,column=0,sticky='ew')
+        self.window.bind('<Configure>',self._resize_status)
+        self.request_page(0);self.window.after(80,self.poll)
+
+    def _resize_status(self,event):
+        if event.widget is self.window:
+            self.status_label.configure(wraplength=max(120,self.window.winfo_width()-32))
+
+    def _scroll(self,axis,amount):
+        getattr(self.canvas,axis+'view_scroll')(amount,'units');return 'break'
+
+    def _wheel(self,event):
+        return self._scroll('y', -1 if event.delta>0 else 1)
+
+    def _wheel_x(self,event):
+        return self._scroll('x', -1 if event.delta>0 else 1)
+
+    def go(self,offset):
+        index=self.page+offset
+        if 0<=index<len(self.resultado['paginas_originais']):self.request_page(index)
+
+    def request_page(self,index):
+        self.page=index;self.token+=1
+        self.request=(self.token,index);self.image=None
+        self.canvas.delete('all');self.canvas.configure(scrollregion=(0,0,0,0))
+        self.label.set(f"Carregando resultado {index+1} de {len(self.resultado['paginas_originais'])}…")
+        self.prev.configure(state='normal' if index>0 else 'disabled')
+        self.next.configure(state='normal' if index+1<len(self.resultado['paginas_originais']) else 'disabled')
+        self._start()
+
+    def _start(self):
+        if self.closed or self.future is not None or self.request is None:return
+        request=self.request;self.request=None
+        try:
+            future=self.executor().submit(renderizar,self.resultado['destino'],self.resultado['sha256_saida'],request[1])
+        except Exception as error:
+            if isinstance(error,BrokenProcessPool):self.executor_quebrado()
+            self._invalidar();return
+        self.future=(request,future)
+
+    def _invalidar(self):
+        self.token+=1;self.request=None;self.image=None
+        self.canvas.delete('all');self.canvas.configure(scrollregion=(0,0,0,0))
+        self.label.set(f"Resultado {self.page+1} de {len(self.resultado['paginas_originais'])} · original {self.resultado['paginas_originais'][self.page]+1}")
+        aviso='Não foi possível conferir o arquivo salvo. Volte ao editor e verifique o destino.'
+        if self.resultado.get('limpeza_pendente'):
+            aviso+=' Um arquivo temporário adicional pode permanecer na pasta de destino.'
+        self.status.set(aviso)
+        self.prev.configure(state='disabled');self.next.configure(state='disabled')
+
+    def poll(self):
+        if self.closed:return
+        if self.future is not None and self.future[1].done():
+            request,future=self.future;self.future=None
+            if request[0]==self.token:
+                try:self.image=tk.PhotoImage(master=self.window,data=future.result())
+                except Exception as error:
+                    if isinstance(error,BrokenProcessPool):self.executor_quebrado()
+                    self._invalidar()
+                else:
+                    self.canvas.delete('all');self.canvas.create_image(0,0,anchor='nw',image=self.image)
+                    self.canvas.configure(scrollregion=(0,0,self.image.width(),self.image.height()))
+                    self.canvas.xview_moveto(0);self.canvas.yview_moveto(0)
+                    original=self.resultado['paginas_originais'][self.page]+1
+                    self.label.set(f"Resultado {self.page+1} de {len(self.resultado['paginas_originais'])} · original {original}")
+        self._start();self.window.after(80,self.poll)
+
+    def close(self):
+        if self.closed:return
+        self.closed=True;self.token+=1;self.request=None
+        if self.future is not None:self.future[1].cancel()
+        self.image=None
+        self.window.destroy()
+        self.filename=None;self.label=None;self.status=None
+        self.ao_fechar()
 
 
 class VisualizadorManual:
     """A interface vive no processo principal; inspeção/renderização usam o executor compartilhado."""
 
-    def __init__(self, parent, executor, ocupado=lambda: False, ao_fechar=lambda: None, executor_quebrado=lambda: None):
+    def __init__(self, parent, executor, ocupado=lambda: False, ao_fechar=lambda: None, executor_quebrado=lambda: None, ao_iniciar_exportacao=lambda: None, ao_encerrar_exportacao=lambda: None):
         self.parent = parent
         self.executor = executor
         self.ocupado = ocupado
         self.ao_fechar = ao_fechar
         self.executor_quebrado = executor_quebrado
+        self.ao_iniciar_exportacao = ao_iniciar_exportacao
+        self.ao_encerrar_exportacao = ao_encerrar_exportacao
+        self.exporting = False
+        self.export_future = None
+        self.result_viewer = None
         self.closed = False
         self.document = None
         self.path = None
@@ -96,7 +235,7 @@ class VisualizadorManual:
         self.recipient_entry.pack(side='left',fill='x',expand=True,padx=(5,0))
         self.tool.trace_add('write', self._tool_changed)
         self.mark_color.trace_add('write', self._color_changed)
-        self.preview_warning = ttk.Label(tools, text='Prévia: as tarjas ainda não ocultam dados. O aviso pode cobrir conteúdo do documento.', wraplength=560)
+        self.preview_warning = ttk.Label(tools, text='As marcações ainda não ocultam dados. O aviso pode cobrir conteúdo do documento.', wraplength=280)
         self.preview_warning.grid(row=2, column=0, columnspan=3, sticky='w', pady=(1,0))
         self.selection_status = tk.StringVar(value='Sem seleção.')
         self.selection_label = ttk.Label(tools, textvariable=self.selection_status, anchor='e')
@@ -148,7 +287,10 @@ class VisualizadorManual:
         self.exclusion_label = ttk.Label(page_options, textvariable=self.exclusion_status, wraplength=400, justify='left')
         self.exclusion_label.grid(row=0, column=1, sticky='ew', padx=(12,0))
 
-        self.status = tk.StringVar(value='Abra um PDF para visualizar. Nesta etapa, nenhum arquivo será alterado ou exportado.')
+        self.export_button = ttk.Button(page_options,text='Gerar PDF…',command=self.generate)
+        self.export_button.grid(row=0,column=2,sticky='ne',padx=(8,0))
+        self.export_progress = ttk.Progressbar(self.window,mode='indeterminate',length=120)
+        self.status = tk.StringVar(value='Abra um PDF para visualizar e marcar áreas. O original não será alterado.')
         self.status_label = ttk.Label(self.window, textvariable=self.status, wraplength=570, padding=(12, 3, 12, 3))
         self.status_label.grid(row=5, column=0, sticky='ew')
         self.window.bind('<Configure>', self._resize_status)
@@ -162,7 +304,7 @@ class VisualizadorManual:
             if width <= 1:
                 return
             self.status_label.configure(wraplength=max(120, width-32))
-            self.exclusion_label.configure(wraplength=max(120, width-200))
+            self.exclusion_label.configure(wraplength=max(120, width-300))
             self.notice_status_label.configure(wraplength=max(120,width-32))
             self.notice_warning.configure(wraplength=max(120,width-32))
 
@@ -189,10 +331,14 @@ class VisualizadorManual:
     def _wheel_horizontal(self, event):
         return self._scroll('x', self._wheel_amount(event))
 
+    def _busy(self):
+        return self.exporting or bool(self.ocupado())
+
     def _controls(self):
-        busy = bool(self.ocupado())
+        busy = bool(self._busy())
         opening = self.inspect_future is not None
         self.open_button.configure(state='disabled' if busy or opening else 'normal')
+        self.export_button.configure(state='normal' if self.document is not None and not busy and not opening and self.image is not None and self.render_future is None and self.render_request is None else 'disabled')
         usable = self.document is not None and not busy and not opening
         self.prev_button.configure(state='normal' if usable and self.page > 0 else 'disabled')
         self.next_button.configure(state='normal' if usable and self.page + 1 < self.document['total_paginas'] else 'disabled')
@@ -230,7 +376,7 @@ class VisualizadorManual:
         self.exclusion_status.set(f'{page_state} · {summary}{reason}')
 
     def toggle_exclusion(self):
-        if (self.closed or self.ocupado() or self.inspect_future is not None or not self.document
+        if (self.closed or self._busy() or self.inspect_future is not None or not self.document
                 or self.image is None or self.render_future is not None or self.render_request is not None):
             return
         if self.page in self.excluded_pages:
@@ -243,7 +389,7 @@ class VisualizadorManual:
         self._controls()
 
     def _can_edit(self):
-        return bool(not self.closed and not self.ocupado() and self.inspect_future is None
+        return bool(not self.closed and not self._busy() and self.inspect_future is None
                     and self.document is not None and self.image is not None
                     and self.render_future is None and self.render_request is None
                     and self.page not in self.excluded_pages and self.page_image_id is not None)
@@ -456,7 +602,7 @@ class VisualizadorManual:
         self._start_notice()
 
     def _start_notice(self):
-        if self.closed or self.ocupado() or self.notice_future is not None or self.notice_request is None:
+        if self.closed or self._busy() or self.notice_future is not None or self.notice_request is None:
             return
         request = self.notice_request
         self.notice_request = None
@@ -478,7 +624,7 @@ class VisualizadorManual:
                     and self.notice_area['pagina'] not in self.excluded_pages)
 
     def remove_notice(self):
-        if (self.closed or self.ocupado() or self.inspect_future is not None or self.document is None
+        if (self.closed or self._busy() or self.inspect_future is not None or self.document is None
                 or self.image is None or self.render_future is not None or self.render_request is not None
                 or self.notice_area is None):
             return
@@ -487,8 +633,84 @@ class VisualizadorManual:
         self._refresh_notice()
         self._controls()
 
+    def generate(self):
+        """Solicita consentimento e congela as escolhas antes de usar o trabalhador."""
+        if (self.closed or self._busy() or self.inspect_future is not None or not self.document
+                or self.image is None or self.render_future is not None or self.render_request is not None):
+            return
+        if self.notice_area is None:
+            messagebox.showerror('Aviso necessário','Defina a área do aviso antes de gerar o PDF.',parent=self.window);return
+        if self.notice_area['pagina'] in self.excluded_pages:
+            messagebox.showerror('Aviso em página excluída','Restaure a página do aviso ou remova e redefina sua área.',parent=self.window);return
+        nome=self.recipient.get().strip()
+        if not nome:
+            messagebox.showerror('Destinatário necessário','Informe o destinatário do documento.',parent=self.window);self.recipient_entry.focus_set();return
+        instante=datetime.now().astimezone()
+        nome_destino=_nome_seguro(nome)
+        nome_arquivo=_nome_seguro(Path(self.path).stem)
+        if not nome_destino or not nome_arquivo:
+            messagebox.showerror('Nome inválido','O destinatário e o nome original precisam conter letras ou números.',parent=self.window);return
+        suggested=f"{nome_destino}-{instante:%d%m%y}-{nome_arquivo}.pdf"
+        destino=filedialog.asksaveasfilename(parent=self.window,title='Salvar PDF processado',
+                    initialdir=str(Path(self.path).parent),initialfile=suggested,defaultextension='.pdf',
+                    filetypes=[('Arquivos PDF','*.pdf')])
+        if not destino:return
+        path=Path(destino)
+        try:
+            if path.suffix.lower()!='.pdf' or path.resolve()==Path(self.path).resolve() or path.exists():
+                raise ValueError
+        except (ValueError,OSError):
+            messagebox.showerror('Destino inválido','Escolha um novo arquivo PDF que não exista e seja diferente do original.',parent=self.window);return
+        recursos=self.document.get('recursos',[])
+        detalhes=('\n\nRecursos detectados: '+', '.join(recursos)+'.') if recursos else ''
+        message=('A cópia será convertida em imagem. Texto selecionável, links, formulários, anexos e recursos de acessibilidade não serão preservados. '
+                 'Assinaturas digitais do original não serão válidas na cópia. O arquivo original permanece inalterado.'
+                 +detalhes+'\n\nDeseja gerar o PDF?')
+        if not messagebox.askyesno('Gerar cópia em PDF?',message,parent=self.window):return
+        instante=datetime.now().astimezone()
+        snapshot={'origem':str(self.path),'sha256_origem':self.document['sha256'],'destino':str(path),
+                  'excluidas':sorted(self.excluded_pages),
+                  'marcas':{int(k):[{'rect':list(m['rect']),'cor':m['cor']} for m in marks] for k,marks in self.marks.items()},
+                  'aviso':{'pagina':self.notice_area['pagina'],'rect':list(self.notice_area['rect'])},
+                  'destinatario':nome,'instante':instante.isoformat(),'dpi':300}
+        self._cancel_drag()
+        self.exporting=True
+        self.export_snapshot=copy.deepcopy(snapshot)
+        self.ao_iniciar_exportacao()
+        self.status.set('Gerando e verificando o PDF. Aguarde…')
+        self.export_progress.grid(row=6,column=0,sticky='ew',padx=12,pady=(0,6));self.export_progress.start(12)
+        self._controls()
+        try:self.export_future=self.executor().submit(exportar,copy.deepcopy(snapshot))
+        except Exception as error:
+            self.export_future=None
+            self._finish_export(error=error)
+
+    def _finish_export(self,resultado=None,error=None):
+        self.export_progress.stop();self.export_progress.grid_remove()
+        self.exporting=False
+        self.ao_encerrar_exportacao()
+        self._controls()
+        if error is not None:
+            if isinstance(error,BrokenProcessPool):self.executor_quebrado()
+            texto=str(error) if isinstance(error,ManualExportErro) else 'Não foi possível gerar o PDF. Confira o arquivo e o destino.'
+            self.status.set('Não foi possível gerar o PDF. As escolhas continuam no editor.')
+            messagebox.showerror('Geração não concluída',texto,parent=self.window)
+            return
+        if resultado.get('limpeza_pendente'):
+            self.status.set('PDF salvo. Um arquivo temporário adicional pode permanecer na pasta de destino.')
+        else:
+            self.status.set('PDF gerado. Alterações no editor não modificam a cópia salva.')
+        if self.result_viewer is not None and not self.result_viewer.closed:self.result_viewer.close()
+        def closed():
+            self.result_viewer=None
+            if not self.closed:self.window.lift()
+        try:self.result_viewer=ConferenciaManual(self.window,self.executor,resultado,closed,self.executor_quebrado)
+        except Exception:
+            self.result_viewer=None
+            messagebox.showerror('Conferência indisponível','O PDF foi gerado, mas não foi possível abrir a conferência. Verifique o arquivo salvo.',parent=self.window)
+
     def choose(self):
-        if self.closed or self.ocupado() or self.inspect_future is not None:
+        if self.closed or self._busy() or self.inspect_future is not None:
             return
         path = filedialog.askopenfilename(parent=self.window, title='Abrir PDF',
                                           filetypes=[('Arquivos PDF', '*.pdf')])
@@ -497,7 +719,7 @@ class VisualizadorManual:
 
     def open_path(self, path):
         """Solicita inspeção sem descartar o documento anterior em caso de recusa."""
-        if self.closed or self.ocupado() or self.inspect_future is not None:
+        if self.closed or self._busy() or self.inspect_future is not None:
             return
         self._cancel_drag()
         self.inspect_path = str(Path(path))
@@ -511,7 +733,7 @@ class VisualizadorManual:
         self._controls()
 
     def go(self, offset):
-        if self.closed or self.ocupado() or self.inspect_future is not None or not self.document:
+        if self.closed or self._busy() or self.inspect_future is not None or not self.document:
             return
         index = self.page + offset
         if 0 <= index < self.document['total_paginas']:
@@ -534,7 +756,7 @@ class VisualizadorManual:
         self._start_render()
 
     def _start_render(self):
-        if self.closed or self.ocupado() or self.render_future is not None or self.render_request is None:
+        if self.closed or self._busy() or self.render_future is not None or self.render_request is None:
             return
         request = self.render_request
         self.render_request = None
@@ -576,6 +798,11 @@ class VisualizadorManual:
     def poll(self):
         if self.closed:
             return
+        if self.export_future is not None and self.export_future.done():
+            future=self.export_future;self.export_future=None
+            try:resultado=future.result()
+            except Exception as error:self._finish_export(error=error)
+            else:self._finish_export(resultado=resultado)
         if self.inspect_future is not None and self.inspect_future.done():
             future, candidate = self.inspect_future, self.inspect_path
             self.inspect_future = None
@@ -615,7 +842,7 @@ class VisualizadorManual:
                     self.canvas.xview_moveto(0)
                     self.canvas.yview_moveto(0)
                     self.page_label.set(f"Página {self.page+1} de {self.document['total_paginas']}")
-                    self.status.set('Visualização somente; o PDF original permanece inalterado.')
+                    self.status.set('As marcações não alteram o original. Gere e confira o PDF antes de compartilhar.')
             elif not future.cancelled():
                 try:
                     future.result()
@@ -653,6 +880,9 @@ class VisualizadorManual:
     def close(self):
         if self.closed:
             return
+        if self.exporting:
+            messagebox.showinfo('Geração em andamento','Aguarde a conclusão antes de fechar.',parent=self.window);return
+        if self.result_viewer is not None and not self.result_viewer.closed:self.result_viewer.close()
         self._cancel_drag()
         self._cancel_notice_timer()
         self.closed = True

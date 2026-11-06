@@ -104,6 +104,41 @@ class InterfaceTest(unittest.TestCase):
         with patch('interface.messagebox.askyesno',return_value=False):self.app.begin_update()
         self.assertFalse(self.app.updating)
 
+    def test_exportacao_manual_bloqueia_e_restaura_acoes(self):
+        from unittest.mock import patch
+        self.app.run_button.configure(state='normal')
+        self.app.load_button.configure(state='disabled')
+        self.app.update_info={'version':'v9.0.0','assets':{}}
+        self.app.update_button.configure(state='normal')
+        self.app._manual_export_started()
+        self.assertTrue(self.app.manual_exporting)
+        for widget in (self.app.run_button,self.app.load_button,self.app.manual_button,
+                       self.app.color_combo,self.app.zoom_button,self.app.update_button,
+                       *self.app.path_widgets):
+            self.assertIn('disabled',widget.state())
+        self.assertIn('disabled',self.app.tree.state())
+        self.app.selection()
+        self.assertIn('disabled',self.app.zoom_button.state())
+        self.app.update_queue.put(('checked',self.app.update_info))
+        self.app.poll_update()
+        self.assertIn('disabled',self.app.update_button.state())
+        with patch('interface.messagebox.askyesno') as confirm, patch('interface.messagebox.showinfo') as notice:
+            self.app.start()
+            self.app.begin_update()
+            self.app.close()
+            confirm.assert_not_called()
+            notice.assert_called_once()
+        self.assertFalse(self.app.running)
+        self.assertFalse(self.app.updating)
+        self.assertFalse(self.app.closing)
+        self.app._manual_export_finished()
+        self.assertFalse(self.app.manual_exporting)
+        self.assertNotIn('disabled',self.app.run_button.state())
+        self.assertIn('disabled',self.app.load_button.state())
+        self.assertNotIn('disabled',self.app.manual_button.state())
+        self.assertNotIn('disabled',self.app.tree.state())
+        self.assertNotIn('disabled',self.app.update_button.state())
+
     def test_atualizacao_congela_versao_durante_download(self):
         from unittest.mock import patch
         release={'version':'v2.0.0','assets':{'hide-pdf-fields-windows.zip':{'sha256':'a'*64}}}

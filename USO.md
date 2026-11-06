@@ -12,13 +12,15 @@ Se recarregar a mesma pasta, os resultados anteriores também serão listados e 
 
 ## Visualizador manual em desenvolvimento
 
-A etapa experimental permite abrir e visualizar um PDF por vez, com navegação entre páginas, rolagem e escala fixa de 100%. Documentos com alguma página rotacionada e PDFs que exigem senha para abertura são recusados. A página exibida pode ser marcada como excluída de um futuro resultado e depois restaurada; a navegação mantém a numeração original e pelo menos uma página deve permanecer incluída.
+A etapa experimental permite abrir e visualizar um PDF por vez, com navegação entre páginas, rolagem e escala fixa de 100%. Documentos com alguma página rotacionada e PDFs que exigem senha para abertura são recusados. A página exibida pode ser marcada como excluída do resultado e depois restaurada; a navegação mantém a numeração original e pelo menos uma página deve permanecer incluída.
 
 É possível desenhar marcações de tarja por página, nas cores Preto, Vermelho escuro, Cinza escuro ou Branco. Para corrigir uma marcação, selecione-a, apague-a e desenhe outra; não há ajuste de posição ou tamanho. As marcações de uma página são preservadas se ela for marcada para exclusão e depois restaurada.
 
 Informe o destinatário e use **Definir área do aviso** na página escolhida. Existe uma área de aviso por documento: para mudar sua posição ou tamanho, use **Remover área do aviso** e desenhe outra. A prévia usa data e hora de exemplo e indica destinatário inválido ou quando o texto completo não cabe, sem reduzir ou truncar o texto. A área pode se sobrepor a conteúdo existente; o usuário é responsável pela posição escolhida. Se a página for marcada para exclusão, a área do aviso permanece guardada, mas inativa até a página ser restaurada ou a área ser removida.
 
-**As tarjas e o aviso manuais são somente prévias em memória e ainda não removem dados.** Nenhum arquivo é gerado, nenhuma página é excluída do original e o PDF original não é alterado. Esta etapa ainda não inclui geração de PDFs.
+Use **Gerar PDF…** para escolher onde salvar a cópia. A sugestão é a pasta do original e o nome normalizado com destinatário, data e nome original. O destino deve ser um novo arquivo PDF, diferente do original. Antes da geração, confirme a mensagem sobre os recursos que não serão preservados e os recursos detectados no documento.
+
+A saída é um novo PDF rasterizado: contém somente as páginas mantidas, com as tarjas e o aviso aplicados, sem texto selecionável. Links, formulários, anexos e recursos de acessibilidade não são preservados, e assinaturas digitais não são válidas na cópia. O original e os arquivos existentes não são sobrescritos. Confira todas as páginas na visualização do arquivo salvo antes de compartilhar. Ao fechar a conferência e voltar ao editor, as marcações e seleções permanecem disponíveis para outra geração; mudanças posteriores não alteram a cópia já salva. A etapa 6 e a publicação desta funcionalidade ainda não ocorreram.
 
 ## Campos
 
