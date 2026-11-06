@@ -20,6 +20,7 @@ except ImportError:
     raise SystemExit('Tkinter indisponível. Instale Python com Tcl/Tk (python.org) ou o pacote python3-tk do sistema. O modo tarjar.py --pasta continua disponível.')
 from tarjar import validar_destinatario, CORES
 from lote import Resultado, descobrir, processar_arquivo, comparar, Recusado, CAMPOS
+from manual_interface import VisualizadorManual
 
 LABELS = {'aguardando':'Aguardando', 'processando':'Processando', 'concluido':'Concluído',
           'recusado':'Recusado', 'falhou':'Falhou', 'cancelado':'Cancelado', 'ignorado':'Ignorado'}
@@ -47,6 +48,7 @@ class Aplicativo:
         self.page_counts = {}
         self.resize_after = None
         self.pool_broken = False
+        self.manual_viewer = None
         self.running = False
         self.updating = False
         self.update_info = None
@@ -112,6 +114,8 @@ class Aplicativo:
         self.run_button.pack(side='left',padx=8)
         self.stop_button = ttk.Button(actions,text='Interromper',command=self.stop,state='disabled')
         self.stop_button.pack(side='left')
+        self.manual_button = ttk.Button(actions,text='Modo manual…',command=self.open_manual)
+        self.manual_button.pack(side='left',padx=(8,0))
         self.progress = ttk.Progressbar(actions,mode='determinate',length=180)
         self.progress.pack(side='right',fill='x',expand=True,padx=(20,0))
         table = ttk.Frame(root,padding=(16,0))
@@ -178,6 +182,33 @@ class Aplicativo:
         ttk.Label(update_row,text='Confira o resultado antes de compartilhar. O texto não será selecionável.',wraplength=500).grid(row=0,column=0,sticky='w')
 
         self._clear_previews('Selecione um arquivo.')
+
+    def _manual_executor(self):
+        if self.pool_broken:
+            self.pool.shutdown(wait=False,cancel_futures=True)
+            self.pool=ProcessPoolExecutor(max_workers=1,mp_context=multiprocessing.get_context('spawn'))
+            self.pool_broken=False
+        return self.pool
+
+    def _manual_executor_broken(self):
+        self.pool_broken=True
+
+    def open_manual(self):
+        if self.running or self.updating or self.closing:
+            return
+        if self.manual_viewer is not None and not self.manual_viewer.closed:
+            self.manual_viewer.window.lift()
+            self.manual_viewer.window.focus_force()
+            return
+        def finished():
+            self.manual_viewer = None
+            if not self.closing:
+                self.manual_button.focus_set()
+        self.manual_viewer = VisualizadorManual(
+            self.root, self._manual_executor,
+            lambda: self.running or self.updating or self.closing,
+            finished, self._manual_executor_broken,
+        )
 
     def choose(self,var):
         value=filedialog.askdirectory(parent=self.root,title='Escolha a pasta')
@@ -381,6 +412,7 @@ class Aplicativo:
         self.batch_choices={i:list(v) for i,v in self.choices.items()}
         self.running=True;self.stopping=False;self.index=0
         self.update_button.configure(state="disabled")
+        self.manual_button.configure(state="disabled")
         self._show_fields()
         self.run_button.configure(state='disabled');self.load_button.configure(state='disabled')
         self.stop_button.configure(state='normal')
@@ -419,6 +451,7 @@ class Aplicativo:
         self.active=None
         self.stop_button.configure(state='disabled')
         self.load_button.configure(state='normal')
+        self.manual_button.configure(state='normal')
         for w in self.path_widgets:w.configure(state='normal')
         self.recipient_entry.configure(state='disabled')
         counts={s:sum(j.status==s for j in self.jobs) for s in ('concluido','recusado','falhou','cancelado','ignorado')}
@@ -462,7 +495,9 @@ class Aplicativo:
                 except Exception:self._clear_previews('Prévia indisponível. O status do PDF permanece na lista.')
         if self.closing and not self.running and self.preview_future is None:
             self.pool.shutdown(wait=False,cancel_futures=True)
-            self.root.destroy();return
+            self.root.destroy()
+            self._release_tk_resources()
+            return
         if self.preview_request and self.preview_future is None and not self.closing:
             request=self.preview_request;self.preview_request=None
             token,i,zoom,(w,h)=request
@@ -482,13 +517,14 @@ class Aplicativo:
         if self.running or self.updating or not self.update_info:return
         release=copy.deepcopy(self.update_info)
         if not messagebox.askyesno('Atualizar aplicativo?',f"Atualizar para {release['version']}?\n\nO aplicativo será encerrado para instalar a atualização. Os PDFs gerados serão preservados. As seleções atuais precisarão ser refeitas.",parent=self.root):return
-        controls=[self.run_button,self.load_button,self.color_combo,*self.path_widgets]
+        controls=[self.run_button,self.load_button,self.color_combo,self.manual_button,*self.path_widgets]
         self.update_previous_states=[(widget,str(widget.cget('state'))) for widget in controls]
         self.active_update_info=release
         self.updating=True
         self._show_fields()
         self.update_button.configure(state='disabled')
         self.run_button.configure(state='disabled');self.load_button.configure(state='disabled')
+        self.manual_button.configure(state='disabled')
         for w in self.path_widgets:w.configure(state='disabled')
         self.color_combo.configure(state='disabled')
         self.update_detail.pack(fill='x',pady=(4,0))
@@ -537,6 +573,15 @@ class Aplicativo:
         self._show_fields()
         messagebox.showerror('Atualização não concluída','Não foi possível preparar a atualização. Verifique a conexão e tente novamente. A versão atual continua disponível.',parent=self.root)
 
+    def _release_tk_resources(self):
+        """Libera objetos Tcl na thread Tk mesmo com threads do executor ativas."""
+        self.photos.clear()
+        self.field_vars.clear()
+        self.window_icon = None
+        for name in ('source','target','recipient','color','summary','detail',
+                     'fields_summary','original_title','update_status'):
+            setattr(self,name,None)
+
     def close(self):
         if self.updating and not self.closing:
             messagebox.showinfo('Atualização em andamento','Aguarde o fim da preparação da atualização.',parent=self.root);return
@@ -544,6 +589,8 @@ class Aplicativo:
             if not messagebox.askyesno('Encerrar após arquivo atual?','O arquivo em andamento será concluído. Os seguintes não serão iniciados. Deseja encerrar?',parent=self.root):return
             self.stop()
         self.closing=True
+        if self.manual_viewer is not None:
+            self.manual_viewer.close()
         self.preview_request=None
         self.preview_token+=1
         self.summary.set('Encerrando tarefas locais…')

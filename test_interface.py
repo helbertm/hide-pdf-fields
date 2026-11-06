@@ -26,6 +26,7 @@ class InterfaceTest(unittest.TestCase):
         self.app.pool.shutdown(wait=True,cancel_futures=True)
         try:self.root.destroy()
         except Exception:pass
+        self.app._release_tk_resources()
 
     def pump(self,condition,timeout=30):
         until=time.monotonic()+timeout

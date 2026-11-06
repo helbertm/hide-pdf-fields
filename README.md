@@ -30,6 +30,10 @@ A atualização consulta somente a release pública do repositório e não envia
 
 Todos os campos começam marcados. ZIP, documentos de texto e imagens não são aceitos. Arquivos existentes não são sobrescritos. Veja [uso, limites e campos](USO.md).
 
+## Visualizador manual em desenvolvimento
+
+Esta linha de desenvolvimento contém uma primeira etapa experimental do modo manual: abrir um PDF por vez, verificar suas páginas e navegar em visualização fixa de 100%, sem alterar o original. Páginas com rotação configurada são recusadas. Este visualizador ainda não permite desenhar tarjas, excluir páginas, posicionar avisos nem gerar PDFs, e não constitui uma release.
+
 ## Desenvolvimento e verificações
 
 Python 3.14 x64 é o runtime de distribuição Windows. Em um ambiente virtual:

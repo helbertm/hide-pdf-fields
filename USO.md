@@ -2,13 +2,17 @@
 
 ## Entrada e saída
 
-O programa aceita somente PDFs com texto nativo nos dois layouts reconhecidos em A4. A nota fiscal deve ter uma página. Um pedido com várias páginas é aceito quando a primeira contém o fechamento reconhecido e a opção de ocultar observações está marcada: a saída mantém apenas a primeira página e descarta todas as seguintes. A prévia identifica a primeira página e o resultado informa a quantidade descartada. PDFs digitalizados, imagens renomeadas, recortes, rotação, senha ou posições de campos incompatíveis são recusados. Cada arquivo é independente: uma recusa não impede os demais.
+No modo automático, o programa aceita somente PDFs com texto nativo nos dois layouts reconhecidos em A4. A nota fiscal deve ter uma página. Um pedido com várias páginas é aceito quando a primeira contém o fechamento reconhecido e a opção de ocultar observações está marcada: a saída mantém apenas a primeira página e descarta todas as seguintes. A prévia identifica a primeira página e o resultado informa a quantidade descartada. PDFs digitalizados, imagens renomeadas, recortes, rotação, senha ou posições de campos incompatíveis são recusados. Cada arquivo é independente: uma recusa não impede os demais.
 
 A lista inclui arquivos `.pdf`/`.PDF` diretamente na pasta, sem subpastas. É lida uma vez por lote. A pasta de saída acompanha a entrada até ser escolhida uma pasta diferente. Nenhum arquivo existente é sobrescrito.
 
 Nome de saída: `Destinatario-ddmmyy-nome_original.pdf`. Destinatário e nome original recebem normalização: espaços viram `_`, acentos são removidos e caracteres especiais são excluídos. Exemplo: `João da Silva` e `Nota 123.pdf` tornam-se `Joao_da_Silva-051126-Nota_123.pdf` em 05/11/2026. A extensão final é `.pdf`.
 
 Se recarregar a mesma pasta, os resultados anteriores também serão listados e recusados por não corresponderem à entrada textual suportada. Não há exclusão automática por semelhança de nome.
+
+## Visualizador manual em desenvolvimento
+
+A etapa experimental permite abrir e visualizar um PDF por vez, com navegação entre páginas, rolagem e escala fixa de 100%. Documentos com alguma página rotacionada e PDFs que exigem senha para abertura são recusados. O conteúdo é apenas visualizado: esta etapa ainda não inclui marcação de áreas, exclusão de páginas, posicionamento de avisos ou geração de PDFs. O arquivo original não é alterado.
 
 ## Campos
 
