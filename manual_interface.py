@@ -20,6 +20,7 @@ class VisualizadorManual:
         self.document = None
         self.path = None
         self.page = 0
+        self.excluded_pages = set()
         self.image = None
         self.inspect_future = None
         self.inspect_path = None
@@ -76,9 +77,18 @@ class VisualizadorManual:
             self.canvas.bind(key, lambda event, a=axis, n=amount: self._scroll(a, n))
         self.canvas.bind('<Button-1>', lambda _: self.canvas.focus_set())
 
+        page_options = ttk.Frame(self.window, padding=(12, 6, 12, 0))
+        page_options.grid(row=3, column=0, sticky='ew')
+        page_options.columnconfigure(1, weight=1)
+        self.exclude_button = ttk.Button(page_options, text='Excluir página', command=self.toggle_exclusion)
+        self.exclude_button.grid(row=0, column=0, sticky='nw')
+        self.exclusion_status = tk.StringVar(value='')
+        self.exclusion_label = ttk.Label(page_options, textvariable=self.exclusion_status, wraplength=400, justify='left')
+        self.exclusion_label.grid(row=0, column=1, sticky='ew', padx=(12,0))
+
         self.status = tk.StringVar(value='Abra um PDF para visualizar. Nesta etapa, nenhum arquivo será alterado ou exportado.')
         self.status_label = ttk.Label(self.window, textvariable=self.status, wraplength=570, padding=(12, 8, 12, 12))
-        self.status_label.grid(row=3, column=0, sticky='ew')
+        self.status_label.grid(row=4, column=0, sticky='ew')
         self.window.bind('<Configure>', self._resize_status)
         self._controls()
         self.window.after_idle(self.open_button.focus_set)
@@ -87,6 +97,7 @@ class VisualizadorManual:
     def _resize_status(self, event):
         if event.widget == self.window:
             self.status_label.configure(wraplength=max(120, event.width-32))
+            self.exclusion_label.configure(wraplength=max(120, event.width-200))
 
     def _scroll(self, axis, amount):
         getattr(self.canvas, axis + 'view_scroll')(amount, 'units')
@@ -113,6 +124,31 @@ class VisualizadorManual:
         usable = self.document is not None and not busy and not opening
         self.prev_button.configure(state='normal' if usable and self.page > 0 else 'disabled')
         self.next_button.configure(state='normal' if usable and self.page + 1 < self.document['total_paginas'] else 'disabled')
+        if not self.document:
+            self.exclude_button.configure(text='Excluir página', state='disabled')
+            self.exclusion_status.set('')
+            return
+        total = self.document['total_paginas']
+        excluded = self.page in self.excluded_pages
+        remaining = total - len(self.excluded_pages)
+        last_retained = not excluded and remaining <= 1
+        ready = usable and self.image is not None and self.render_future is None and self.render_request is None
+        self.exclude_button.configure(text='Restaurar página' if excluded else 'Excluir página',
+                                      state='normal' if ready and not last_retained else 'disabled')
+        page_state = 'Excluída do resultado' if excluded else 'Página mantida no resultado'
+        summary = f'Resultado previsto: {remaining} páginas · {len(self.excluded_pages)} excluídas'
+        reason = '\nO resultado precisa manter pelo menos uma página.' if last_retained else ''
+        self.exclusion_status.set(f'{page_state} · {summary}{reason}')
+
+    def toggle_exclusion(self):
+        if (self.closed or self.ocupado() or self.inspect_future is not None or not self.document
+                or self.image is None or self.render_future is not None or self.render_request is not None):
+            return
+        if self.page in self.excluded_pages:
+            self.excluded_pages.remove(self.page)
+        elif self.document['total_paginas'] - len(self.excluded_pages) > 1:
+            self.excluded_pages.add(self.page)
+        self._controls()
 
     def choose(self):
         if self.closed or self.ocupado() or self.inspect_future is not None:
@@ -171,6 +207,7 @@ class VisualizadorManual:
         self.document = None
         self.path = None
         self.page = 0
+        self.excluded_pages.clear()
         self.image = None
         self.canvas.delete('all')
         self.canvas.configure(scrollregion=(0, 0, 0, 0))
@@ -200,6 +237,7 @@ class VisualizadorManual:
                 messagebox.showerror('Não foi possível abrir o PDF', self._message(error), parent=self.window)
             else:
                 self.document, self.path = doc, candidate
+                self.excluded_pages.clear()
                 self.filename.set(str(Path(candidate).name))
                 self.request_page(0)
         if self.render_future is not None and self.render_future[1].done():
@@ -242,10 +280,12 @@ class VisualizadorManual:
         if self.render_future is not None:
             self.render_future[1].cancel()
         self.image = None
+        self.excluded_pages.clear()
         self.window.destroy()
         # Variáveis Tcl devem ser liberadas na mesma thread que criou o Tk;
         # executores de processos podem disparar GC em suas próprias threads.
         self.filename = None
         self.page_label = None
+        self.exclusion_status = None
         self.status = None
         self.ao_fechar()

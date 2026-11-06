@@ -2,6 +2,7 @@
 import concurrent.futures
 from concurrent.futures.process import BrokenProcessPool
 import hashlib
+import gc
 import os
 import tempfile
 import threading
@@ -44,6 +45,12 @@ class ManualInterfaceTest(unittest.TestCase):
         except Exception:
             pass
         self.app._release_tk_resources()
+        # Cada caso cria um interpretador Tk próprio. Faça a coleta de ciclos
+        # na thread Tk antes que o executor do teste seguinte possa iniciar.
+        self.viewer = None
+        self.app = None
+        self.root = None
+        gc.collect()
 
     def pump(self, condition, timeout=30):
         end = time.monotonic() + timeout
@@ -101,6 +108,88 @@ class ManualInterfaceTest(unittest.TestCase):
             self.root.update()
             self.assertGreater(self.viewer.canvas.yview()[0],before)
 
+    def test_excluir_restaurar_paginas_mantem_ordem_e_original(self):
+        source_hash=hashlib.sha256(self.source.read_bytes()).hexdigest()
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.assertEqual(self.viewer.excluded_pages,set())
+        self.assertIn('Resultado previsto: 3 páginas · 0 excluídas',self.viewer.exclusion_status.get())
+        self.viewer.exclude_button.focus_force();self.root.update()
+        focused=self.root.focus_get() is self.viewer.exclude_button
+        self.viewer.exclude_button.invoke();self.root.update()
+        self.assertEqual(self.viewer.excluded_pages,{0})
+        self.assertEqual(self.viewer.exclude_button.cget('text'),'Restaurar página')
+        self.assertIn('Excluída do resultado',self.viewer.exclusion_status.get())
+        if focused:self.assertIs(self.root.focus_get(),self.viewer.exclude_button)
+        self.viewer.go(1)
+        self.assertIn('disabled',self.viewer.exclude_button.state())
+        self.viewer.toggle_exclusion()
+        self.assertEqual(self.viewer.excluded_pages,{0})
+        self.pump(lambda:self.viewer.image is not None and self.viewer.page==1)
+        self.viewer.toggle_exclusion()
+        self.assertEqual(self.viewer.excluded_pages,{0,1})
+        self.viewer.go(1)
+        self.pump(lambda:self.viewer.image is not None and self.viewer.page==2)
+        self.assertIn('disabled',self.viewer.exclude_button.state())
+        self.assertIn('O resultado precisa manter pelo menos uma página.',self.viewer.exclusion_status.get())
+        self.viewer.toggle_exclusion()
+        self.assertEqual(self.viewer.excluded_pages,{0,1})
+        self.viewer.go(-1)
+        self.pump(lambda:self.viewer.image is not None and self.viewer.page==1)
+        self.assertIn('Excluída do resultado',self.viewer.exclusion_status.get())
+        self.viewer.toggle_exclusion()
+        self.assertEqual(self.viewer.excluded_pages,{0})
+        self.assertIn('Resultado previsto: 2 páginas · 1 excluídas',self.viewer.exclusion_status.get())
+        self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(),source_hash)
+        self.assertEqual(list(self.folder.iterdir()),[self.source])
+
+    def test_arquivo_com_uma_pagina_nao_pode_ser_excluido(self):
+        single=self.folder/'unica.pdf'
+        with pdf.open() as d:
+            d.new_page();d.save(single)
+        self.viewer.open_path(single)
+        self.pump(lambda:self.viewer.image is not None)
+        self.assertIn('disabled',self.viewer.exclude_button.state())
+        self.assertIn('O resultado precisa manter pelo menos uma página.',self.viewer.exclusion_status.get())
+        self.viewer.toggle_exclusion()
+        self.assertEqual(self.viewer.excluded_pages,set())
+
+    def test_substituicao_recusada_preserva_marcacoes_e_sucesso_limpa(self):
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.viewer.toggle_exclusion()
+        self.assertEqual(self.viewer.excluded_pages,{0})
+        invalid=self.folder/'nao_suportado.pdf'
+        with pdf.open() as d:
+            d.new_page().set_rotation(90);d.save(invalid)
+        with patch('manual_interface.messagebox.showerror') as error:
+            self.viewer.open_path(invalid)
+            self.pump(lambda:self.viewer.inspect_future is None)
+        self.assertTrue(error.called)
+        self.assertEqual(self.viewer.path,str(self.source))
+        self.assertEqual(self.viewer.excluded_pages,{0})
+        self.assertIn('Excluída do resultado',self.viewer.exclusion_status.get())
+        replacement=self.folder/'outro.pdf'
+        with pdf.open() as d:
+            d.new_page();d.new_page();d.save(replacement)
+        self.viewer.open_path(replacement)
+        self.pump(lambda:self.viewer.path==str(replacement) and self.viewer.image is not None)
+        self.assertEqual(self.viewer.excluded_pages,set())
+        self.assertIn('Resultado previsto: 2 páginas · 0 excluídas',self.viewer.exclusion_status.get())
+
+    def test_ocupado_impede_alteracao_da_exclusao(self):
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.app.running=True
+        self.viewer._controls()
+        self.assertIn('disabled',self.viewer.exclude_button.state())
+        self.viewer.toggle_exclusion()
+        self.assertEqual(self.viewer.excluded_pages,set())
+        self.app.running=False
+        self.viewer._controls()
+        self.viewer.toggle_exclusion()
+        self.assertEqual(self.viewer.excluded_pages,{0})
+
     def test_abertura_recusada_preserva_visualizacao_anterior(self):
         self.viewer.open_path(self.source)
         self.pump(lambda: self.viewer.image is not None)
@@ -121,6 +210,8 @@ class ManualInterfaceTest(unittest.TestCase):
     def test_alteracao_do_original_invalida_sessao(self):
         self.viewer.open_path(self.source)
         self.pump(lambda: self.viewer.image is not None)
+        self.viewer.toggle_exclusion()
+        self.assertEqual(self.viewer.excluded_pages,{0})
         with pdf.open(self.source) as doc:
             doc.new_page()
             changed = doc.tobytes()
@@ -130,6 +221,7 @@ class ManualInterfaceTest(unittest.TestCase):
             self.pump(lambda: self.viewer.document is None)
         self.assertTrue(error.called)
         self.assertIsNone(self.viewer.image)
+        self.assertEqual(self.viewer.excluded_pages,set())
         self.assertIn('alterado', self.viewer.status.get().lower())
 
     def test_renderizacao_atrasada_nao_substitui_pagina_solicitada(self):
@@ -147,20 +239,27 @@ class ManualInterfaceTest(unittest.TestCase):
         executor.tasks[0][2].set_result(metadata)
         self.viewer.poll()
         self.assertEqual(executor.tasks[1][1][-1], 0)
-        self.viewer.go(1)
-        self.viewer.go(1)
-        self.assertIn('3 de 3', self.viewer.page_label.get())
         pix = pdf.Pixmap(pdf.csRGB, pdf.IRect(0, 0, 20, 20), False)
         pix.clear_with(255)
         png = pix.tobytes('png')
         executor.tasks[1][2].set_result(png)
         self.viewer.poll()
-        self.assertIsNone(self.viewer.image)
-        self.assertEqual(executor.tasks[2][1][-1], 2)
+        self.viewer.toggle_exclusion()
+        self.assertEqual(self.viewer.excluded_pages,{0})
+        self.viewer.go(1)
+        self.assertEqual(executor.tasks[2][1][-1],1)
+        self.viewer.go(1)
+        self.assertIn('3 de 3',self.viewer.page_label.get())
         executor.tasks[2][2].set_result(png)
         self.viewer.poll()
-        self.assertEqual(self.viewer.page_label.get(), 'Página 3 de 3')
+        self.assertIsNone(self.viewer.image)
+        self.assertEqual(self.viewer.excluded_pages,{0})
+        self.assertEqual(executor.tasks[3][1][-1],2)
+        executor.tasks[3][2].set_result(png)
+        self.viewer.poll()
+        self.assertEqual(self.viewer.page_label.get(),'Página 3 de 3')
         self.assertIsNotNone(self.viewer.image)
+        self.assertEqual(self.viewer.excluded_pages,{0})
 
     def test_rodape_adapta_e_nome_longo_pode_ser_percorrido(self):
         self.viewer.window.geometry('600x450')
@@ -226,7 +325,7 @@ class ManualInterfaceTest(unittest.TestCase):
         self.viewer.path=str(self.source)
         self.viewer.request_page(0)
         self.assertIsNotNone(self.viewer.render_future)
-        tracked={id(self.viewer.filename),id(self.viewer.page_label),id(self.viewer.status)}
+        tracked={id(self.viewer.filename),id(self.viewer.page_label),id(self.viewer.status),id(self.viewer.exclusion_status)}
         destroyed=[]
         original_del=tk.Variable.__del__
         def check_thread(variable):
@@ -260,6 +359,36 @@ class ManualInterfaceTest(unittest.TestCase):
         self.assertIsNone(self.app.manual_viewer)
         self.assertFalse(future.cancelled())
         future.set_result(b'descartado')
+
+    def test_abrir_e_fechar_visualizador_repetidamente_no_mesmo_aplicativo(self):
+        original=hashlib.sha256(self.source.read_bytes()).hexdigest()
+        for _ in range(12):
+            if self.app.manual_viewer is None:
+                self.app.open_manual()
+            self.viewer=self.app.manual_viewer
+            self.viewer.open_path(self.source)
+            self.pump(lambda:self.viewer.image is not None)
+            self.viewer.close()
+            self.assertIsNone(self.app.manual_viewer)
+        self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(),original)
+        self.assertEqual(list(self.folder.iterdir()),[self.source])
+
+    def test_fechar_com_inspecoes_pendentes_repetidamente_no_mesmo_aplicativo(self):
+        for _ in range(12):
+            if self.app.manual_viewer is None:
+                self.app.open_manual()
+            self.viewer=self.app.manual_viewer
+            self.viewer.open_path(self.source)
+            self.assertIsNotNone(self.viewer.inspect_future)
+            self.viewer.close()
+            self.assertIsNone(self.app.manual_viewer)
+            self.root.update()
+        self.app.open_manual()
+        self.viewer=self.app.manual_viewer
+        self.viewer.open_path(self.source)
+        self.pump(lambda:self.viewer.image is not None)
+        self.assertEqual(self.viewer.page_label.get(),'Página 1 de 3')
+        self.assertEqual(list(self.folder.iterdir()),[self.source])
 
     def test_instancia_unica_e_operacoes_bloqueadas_em_lote(self):
         self.app.open_manual()

@@ -12,7 +12,7 @@ Se recarregar a mesma pasta, os resultados anteriores também serão listados e 
 
 ## Visualizador manual em desenvolvimento
 
-A etapa experimental permite abrir e visualizar um PDF por vez, com navegação entre páginas, rolagem e escala fixa de 100%. Documentos com alguma página rotacionada e PDFs que exigem senha para abertura são recusados. O conteúdo é apenas visualizado: esta etapa ainda não inclui marcação de áreas, exclusão de páginas, posicionamento de avisos ou geração de PDFs. O arquivo original não é alterado.
+A etapa experimental permite abrir e visualizar um PDF por vez, com navegação entre páginas, rolagem e escala fixa de 100%. Documentos com alguma página rotacionada e PDFs que exigem senha para abertura são recusados. A página exibida pode ser marcada como excluída de um futuro resultado e depois restaurada; a navegação mantém a numeração original e pelo menos uma página deve permanecer incluída. As escolhas são feitas apenas em memória: nenhum arquivo é gerado e nenhuma página é excluída do original. Esta etapa ainda não inclui marcação de áreas, posicionamento de avisos ou geração de PDFs.
 
 ## Campos
 

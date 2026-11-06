@@ -1,5 +1,6 @@
 """Testes nativos opcionais: TARJA_GUI_TESTS=1 python -m unittest test_interface -v."""
 import os
+import gc
 import tempfile
 import time
 import unittest
@@ -27,6 +28,10 @@ class InterfaceTest(unittest.TestCase):
         try:self.root.destroy()
         except Exception:pass
         self.app._release_tk_resources()
+        # Não deixar o interpretador de um teste para o GC da thread do próximo executor.
+        self.app = None
+        self.root = None
+        gc.collect()
 
     def pump(self,condition,timeout=30):
         until=time.monotonic()+timeout

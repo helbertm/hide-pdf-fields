@@ -32,7 +32,7 @@ Todos os campos começam marcados. ZIP, documentos de texto e imagens não são 
 
 ## Visualizador manual em desenvolvimento
 
-Esta linha de desenvolvimento contém uma primeira etapa experimental do modo manual: abrir um PDF por vez, verificar suas páginas e navegar em visualização fixa de 100%, sem alterar o original. Páginas com rotação configurada são recusadas. Este visualizador ainda não permite desenhar tarjas, excluir páginas, posicionar avisos nem gerar PDFs, e não constitui uma release.
+Esta linha de desenvolvimento contém um visualizador manual experimental: é possível abrir um PDF por vez, navegar em visualização fixa de 100% e marcar páginas para exclusão de um futuro resultado ou restaurá-las. Pelo menos uma página deve permanecer marcada para inclusão. As escolhas ficam apenas em memória; nenhum arquivo é gerado e o PDF original não é alterado. Páginas com rotação configurada são recusadas. O visualizador ainda não permite desenhar tarjas, posicionar avisos nem gerar PDFs, e não constitui uma release.
 
 ## Desenvolvimento e verificações
 
