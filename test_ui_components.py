@@ -57,7 +57,11 @@ class SharedUiTest(unittest.TestCase):
         for name in ('folder', 'open', 'process', 'stop', 'manual', 'compare',
                      'previous', 'next', 'delete', 'export', 'help'):
             image = icon(widget, name)
-            self.assertEqual((image.width(), image.height()), (12, 12))
+            self.assertEqual((image.width(), image.height()), (14, 14))
+            pixels = {image.get(x, y) for x in range(14) for y in range(14)
+                      if not image.transparency_get(x, y)}
+            self.assertIn((16, 16, 16), pixels)
+            self.assertIn((255, 255, 255), pixels)
 
 
 if __name__ == '__main__':

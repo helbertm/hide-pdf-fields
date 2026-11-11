@@ -126,12 +126,18 @@ _GLYPHS = {
 
 
 def icon(widget, name):
-    """Create an unobtrusive, theme-independent PhotoImage for a labelled action."""
+    """Render dark symbols with a light outline for light and dark surfaces."""
     glyph = _GLYPHS[name]
-    image = tk.PhotoImage(master=widget, width=12, height=12)
-    # Mid-gray remains legible on both common native light and dark surfaces.
-    for y, row in enumerate(glyph):
-        for x, pixel in enumerate(row):
-            if pixel == '#':
-                image.put('#787878', (x, y))
+    image = tk.PhotoImage(master=widget, width=14, height=14)
+    points = {(x + 1, y + 1) for y, row in enumerate(glyph)
+              for x, pixel in enumerate(row) if pixel == '#'}
+    # The two-tone edge remains distinguishable on a mid-gray button as well
+    # as on light and dark themes, without guessing the native button color.
+    outline = {(x + dx, y + dy) for x, y in points
+               for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+               if 0 <= x + dx < 14 and 0 <= y + dy < 14}
+    for x, y in outline - points:
+        image.put('#ffffff', (x, y))
+    for x, y in points:
+        image.put('#101010', (x, y))
     return image
