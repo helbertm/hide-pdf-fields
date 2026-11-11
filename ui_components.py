@@ -1,6 +1,6 @@
 """Small, native Tk components shared by the application's windows.
 
-The widgets retain text labels and the operating system's keyboard interaction.
+The widgets preserve the operating system's keyboard interaction.
 No icon font or external image package is required.
 """
 import tkinter as tk
@@ -99,10 +99,12 @@ def add_tooltip(widget, text):
 
 
 def help_button(parent, title, text):
-    """Return a keyboard-operable help button with a textual label."""
-    button = ttk.Button(parent, text='Ajuda',
+    """Return a focusable help button with its own contextual hint."""
+    button = ttk.Button(parent, text='?', width=3, takefocus=True,
                         command=lambda: messagebox.showinfo(title, text, parent=parent))
-    add_tooltip(button, 'Abrir ajuda sobre esta área.')
+    button._help_icon = icon(button, 'help')
+    button.configure(image=button._help_icon, compound='none')
+    add_tooltip(button, f'Ajuda: {title}')
     return button
 
 
@@ -119,7 +121,7 @@ _GLYPHS = {
     'next': ('............','...##.......','....##......','.....##.....','...######...','.....##.....','....##......','...##.......','............','............','............','............'),
     'delete': ('............','..########..','....####....','...######...','...#....#...','...#....#...','...#....#...','...#....#...','...######...','............','............','............'),
     'export': ('............','.....##.....','.....##.....','...######...','....####....','.....##.....','............','..#......#..','..########..','............','............','............'),
-    'help': ('............','...####.....','..##..##....','......##....','.....##.....','....##......','....##......','............','....##......','............','............','............'),
+    'help': ('....####....','..##....##..','.#...##...#.','.#..#..#..#.','#......#...#','#.....#....#','#....#.....#','#..........#','.#...#....#.','.#........#.','..##....##..','....####....'),
 }
 
 

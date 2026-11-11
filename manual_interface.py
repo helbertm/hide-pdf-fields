@@ -55,7 +55,6 @@ class ConferenciaManual:
         self.help_button = help_button(nav, 'Ajuda — conferência',
             'Esta visualização mostra o PDF salvo. Confira todas as páginas e use as barras de rolagem para ver os detalhes. '
             'Volte ao editor para alterar as marcações e gerar outra cópia.')
-        self.help_button.configure(text='Ajuda da conferência')
         self.help_button.pack(side='right')
         box=ttk.Frame(self.window,padding=(12,0));box.grid(row=2,column=0,sticky='nsew')
         box.columnconfigure(0,weight=1);box.rowconfigure(0,weight=1)
@@ -237,7 +236,6 @@ class VisualizadorManual:
             'Abra um PDF e navegue pelas páginas. Escolha Desenhar tarja e arraste sobre cada área que deseja ocultar. '
             'Para refazer uma tarja, escolha Selecionar, clique nela e apague. Informe o destinatário, escolha Definir área do aviso e arraste no documento. '
             'Você pode excluir páginas e restaurá-las antes de gerar. As marcações só são aplicadas ao gerar o PDF; confira o resultado salvo antes de compartilhar.')
-        self.help_button.configure(text='Ajuda do editor')
         self.help_button.pack(side='right')
 
         tools = ttk.Frame(self.window, padding=(12, 0, 12, 2))

@@ -119,7 +119,6 @@ class Aplicativo:
             'Selecione uma pasta de entrada contendo PDFs. A saída começa na mesma pasta, mas pode ser alterada.\n\n'
             'Informe o destinatário para incluí-lo no aviso e no nome das cópias. O aplicativo preserva os originais e não sobrescreve arquivos existentes.')
         self.config_help=help_config
-        help_config.configure(text='Ajuda: pastas')
         help_config.grid(row=3,column=2,sticky='e',padx=(8,0))
         ttk.Label(folders,text='Arquivos incluídos',font=('TkDefaultFont',10,'bold')).grid(row=4,column=0,sticky='w',padx=(0,12),pady=(6,0))
         ttk.Label(folders,text='PDFs da pasta de entrada; subpastas não incluídas. Os originais são preservados.').grid(row=4,column=1,columnspan=2,sticky='w',pady=(6,0))
@@ -174,7 +173,6 @@ class Aplicativo:
             'Selecione um documento na lista. Marque os grupos de dados que deseja ocultar; desmarque os que devem permanecer visíveis.\n\n'
             'As escolhas são individuais para cada documento. Após processar, confira o resultado antes de compartilhar.')
         self.fields_help=help_fields
-        help_fields.configure(text='Ajuda: campos')
         help_fields.pack(side='right',padx=(4,0))
         field_canvas=tk.Canvas(fields,width=270,highlightthickness=0)
         field_canvas.grid(row=2,column=0,sticky='nsew')
