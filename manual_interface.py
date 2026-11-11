@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 from manual_pdf import ESCALA_100, ManualPdfErro, inspecionar, renderizar, visualizar_aviso
 from tarjar import CORES
 from manual_export import ManualExportErro, exportar
+from ui_components import ColorSelector, add_tooltip, help_button, icon
 
 
 def _nome_seguro(texto):
@@ -36,6 +37,7 @@ class ConferenciaManual:
         self.window.geometry('900x700');self.window.minsize(600,450)
         self.window.protocol('WM_DELETE_WINDOW',self.close)
         self.window.columnconfigure(0,weight=1);self.window.rowconfigure(2,weight=1)
+        self.icons = []
         header=ttk.Frame(self.window,padding=(12,10));header.grid(row=0,column=0,sticky='ew')
         ttk.Label(header,text='Resultado salvo:').pack(side='left')
         self.filename=tk.StringVar(value=Path(resultado['destino']).name)
@@ -45,6 +47,16 @@ class ConferenciaManual:
         self.label=tk.StringVar(value='Carregando resultado…')
         ttk.Label(nav,textvariable=self.label).pack(side='left',padx=10)
         self.next=ttk.Button(nav,text='Próxima',command=lambda:self.go(1));self.next.pack(side='left')
+        for button, name, hint in ((self.prev, 'previous', 'Ver a página anterior do resultado.'),
+                                   (self.next, 'next', 'Ver a próxima página do resultado.')):
+            picture = icon(button, name); self.icons.append(picture)
+            button.configure(image=picture, compound='left')
+            add_tooltip(button, hint)
+        self.help_button = help_button(nav, 'Ajuda — conferência',
+            'Esta visualização mostra o PDF salvo. Confira todas as páginas e use as barras de rolagem para ver os detalhes. '
+            'Volte ao editor para alterar as marcações e gerar outra cópia.')
+        self.help_button.configure(text='Ajuda da conferência')
+        self.help_button.pack(side='right')
         box=ttk.Frame(self.window,padding=(12,0));box.grid(row=2,column=0,sticky='nsew')
         box.columnconfigure(0,weight=1);box.rowconfigure(0,weight=1)
         self.canvas=tk.Canvas(box,background='#e9ecef',takefocus=True)
@@ -62,6 +74,7 @@ class ConferenciaManual:
         foot=ttk.Frame(self.window,padding=(12,8));foot.grid(row=3,column=0,sticky='ew')
         self.return_button=ttk.Button(foot,text='Voltar ao editor',command=self.close)
         self.return_button.pack(side='right')
+        add_tooltip(self.return_button, 'Voltar às marcações preservadas no editor.')
         ttk.Label(foot,text='Confira todas as páginas antes de compartilhar.',wraplength=450).pack(side='left')
         self.status=tk.StringVar(value=('PDF salvo. Um arquivo temporário adicional pode permanecer na pasta de destino.'
                                         if resultado.get('limpeza_pendente') else ''))
@@ -139,6 +152,7 @@ class ConferenciaManual:
         if self.future is not None:self.future[1].cancel()
         self.image=None
         self.window.destroy()
+        self.icons.clear()
         self.filename=None;self.label=None;self.status=None
         self.ao_fechar()
 
@@ -184,7 +198,8 @@ class VisualizadorManual:
         self.render_request = None
 
         self.window = tk.Toplevel(parent)
-        self.window.title('Modo manual — visualização')
+        self.window.title('Modo manual — edição')
+        self.icons = []
         self.window.geometry('960x720')
         self.window.minsize(600, 450)
         self.window.protocol('WM_DELETE_WINDOW', self.close)
@@ -200,6 +215,10 @@ class VisualizadorManual:
         self.filename_entry = ttk.Entry(header, textvariable=self.filename, state='readonly')
         self.filename_entry.grid(row=0, column=1, sticky='ew', padx=12)
         ttk.Label(header, text='Visualização: 100%').grid(row=0, column=2, sticky='e')
+        add_tooltip(self.open_button, 'Escolher um arquivo PDF para editar.')
+        add_tooltip(self.filename_entry, 'Arquivo aberto; use as setas para percorrer nomes longos.')
+        picture = icon(self.open_button, 'open'); self.icons.append(picture)
+        self.open_button.configure(image=picture, compound='left')
 
         navigation = ttk.Frame(self.window, padding=(12, 0, 12, 2))
         navigation.grid(row=1, column=0, sticky='ew')
@@ -209,6 +228,17 @@ class VisualizadorManual:
         ttk.Label(navigation, textvariable=self.page_label).pack(side='left', padx=12)
         self.next_button = ttk.Button(navigation, text='Próxima', command=lambda: self.go(1))
         self.next_button.pack(side='left')
+        for button, name, hint in ((self.prev_button, 'previous', 'Ir para a página anterior.'),
+                                   (self.next_button, 'next', 'Ir para a próxima página.')):
+            picture = icon(button, name); self.icons.append(picture)
+            button.configure(image=picture, compound='left')
+            add_tooltip(button, hint)
+        self.help_button = help_button(navigation, 'Ajuda — modo manual',
+            'Abra um PDF e navegue pelas páginas. Escolha Desenhar tarja e arraste sobre cada área que deseja ocultar. '
+            'Para refazer uma tarja, escolha Selecionar, clique nela e apague. Informe o destinatário, escolha Definir área do aviso e arraste no documento. '
+            'Você pode excluir páginas e restaurá-las antes de gerar. As marcações só são aplicadas ao gerar o PDF; confira o resultado salvo antes de compartilhar.')
+        self.help_button.configure(text='Ajuda do editor')
+        self.help_button.pack(side='right')
 
         tools = ttk.Frame(self.window, padding=(12, 0, 12, 2))
         tools.grid(row=2, column=0, sticky='ew')
@@ -223,16 +253,20 @@ class VisualizadorManual:
         self.delete_button.grid(row=0, column=2, sticky='w', padx=(8,0))
         ttk.Label(tools, text='Cor da nova tarja:').grid(row=1, column=0, sticky='w', pady=(1,0))
         self.mark_color = tk.StringVar(value=CORES['preto'][0])
-        self.color_combo = ttk.Combobox(tools, textvariable=self.mark_color,
-                                        values=[name for name, _ in CORES.values()],
-                                        state='readonly', width=16)
-        self.color_combo.grid(row=1, column=1, sticky='w', pady=(1,0))
+        self.color_selector = ColorSelector(tools, textvariable=self.mark_color, colors=CORES, width=13)
+        self.color_combo = self.color_selector.combo
+        self.color_selector.grid(row=1, column=1, sticky='w', pady=(1,0))
+        add_tooltip(self.color_combo, 'Cor aplicada às próximas tarjas desenhadas.')
         recipient_box=ttk.Frame(tools)
         recipient_box.grid(row=1, column=2, sticky='ew', padx=(8,0), pady=(1,0))
         ttk.Label(recipient_box,text='Destinatário:').pack(side='left')
         self.recipient=tk.StringVar(value='')
         self.recipient_entry=ttk.Entry(recipient_box,textvariable=self.recipient,width=16)
         self.recipient_entry.pack(side='left',fill='x',expand=True,padx=(5,0))
+        add_tooltip(self.recipient_entry, 'Nome de quem receberá a cópia; será incluído no aviso.')
+        add_tooltip(self.draw_button, 'Arraste sobre o conteúdo que deseja ocultar.')
+        add_tooltip(self.select_button, 'Clique em uma tarja para selecioná-la e apagá-la.')
+        add_tooltip(self.delete_button, 'Apagar a tarja selecionada; depois você pode desenhá-la novamente.')
         self.tool.trace_add('write', self._tool_changed)
         self.mark_color.trace_add('write', self._color_changed)
         self.preview_warning = ttk.Label(tools, text='As marcações ainda não ocultam dados. O aviso pode cobrir conteúdo do documento.', wraplength=280)
@@ -245,6 +279,8 @@ class VisualizadorManual:
         self.notice_button.grid(row=3,column=0,sticky='w',pady=(1,0))
         self.notice_remove_button=ttk.Button(tools,text='Remover área do aviso',command=self.remove_notice)
         self.notice_remove_button.grid(row=3,column=1,sticky='w',padx=(8,0),pady=(1,0))
+        add_tooltip(self.notice_button, 'Arraste para escolher onde inserir o aviso de destinatário.')
+        add_tooltip(self.notice_remove_button, 'Remover a área escolhida para posicionar o aviso novamente.')
         self.notice_status=tk.StringVar(value='Nenhuma área de aviso definida.')
         self.notice_status_label=ttk.Label(tools,textvariable=self.notice_status,wraplength=560,justify='left')
         self.notice_status_label.grid(row=4,column=0,columnspan=3,sticky='w',pady=(1,0))
@@ -283,12 +319,16 @@ class VisualizadorManual:
         page_options.columnconfigure(1, weight=1)
         self.exclude_button = ttk.Button(page_options, text='Excluir página', command=self.toggle_exclusion)
         self.exclude_button.grid(row=0, column=0, sticky='nw')
+        add_tooltip(self.exclude_button, 'Excluir ou restaurar a página atual na cópia gerada.')
         self.exclusion_status = tk.StringVar(value='')
         self.exclusion_label = ttk.Label(page_options, textvariable=self.exclusion_status, wraplength=400, justify='left')
         self.exclusion_label.grid(row=0, column=1, sticky='ew', padx=(12,0))
 
         self.export_button = ttk.Button(page_options,text='Gerar PDF…',command=self.generate)
         self.export_button.grid(row=0,column=2,sticky='ne',padx=(8,0))
+        picture = icon(self.export_button, 'export'); self.icons.append(picture)
+        self.export_button.configure(image=picture, compound='left')
+        add_tooltip(self.export_button, 'Salvar uma nova cópia com as páginas e marcações escolhidas.')
         self.export_progress = ttk.Progressbar(self.window,mode='indeterminate',length=120)
         self.status = tk.StringVar(value='Abra um PDF para visualizar e marcar áreas. O original não será alterado.')
         self.status_label = ttk.Label(self.window, textvariable=self.status, wraplength=570, padding=(12, 3, 12, 3))
@@ -905,6 +945,7 @@ class VisualizadorManual:
         self.image = None
         self.excluded_pages.clear()
         self.window.destroy()
+        self.icons.clear()
         # Variáveis Tcl devem ser liberadas na mesma thread que criou o Tk;
         # executores de processos podem disparar GC em suas próprias threads.
         self.filename = None

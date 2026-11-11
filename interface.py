@@ -21,6 +21,7 @@ except ImportError:
 from tarjar import validar_destinatario, CORES
 from lote import Resultado, descobrir, processar_arquivo, comparar, Recusado, CAMPOS
 from manual_interface import VisualizadorManual
+from ui_components import ColorSelector, add_tooltip, help_button, icon
 
 LABELS = {'aguardando':'Aguardando', 'processando':'Processando', 'concluido':'Concluído',
           'recusado':'Recusado', 'falhou':'Falhou', 'cancelado':'Cancelado', 'ignorado':'Ignorado'}
@@ -95,7 +96,10 @@ class Aplicativo:
             entry = ttk.Entry(folders,textvariable=var)
             entry.grid(row=row,column=1,sticky='ew',pady=4)
             button = ttk.Button(folders,text='Escolher…',command=lambda v=var:self.choose(v))
-            button.grid(row=row,column=2,padx=(8,0),pady=4)
+            button.grid(row=row,column=2,padx=(8,0),pady=4,sticky='e')
+            self._set_icon(button, 'folder')
+            add_tooltip(button, 'Procurar a ' + label.lower() + '.')
+            add_tooltip(entry, 'Informe ou escolha a ' + label.lower() + '.')
             self.path_widgets.extend([entry,button])
         ttk.Label(folders,text='Destinatário').grid(row=2,column=0,sticky='w',padx=(0,12),pady=4)
         self.recipient_entry=ttk.Entry(folders,textvariable=self.recipient)
@@ -103,21 +107,40 @@ class Aplicativo:
         color_frame=ttk.Frame(folders)
         color_frame.grid(row=2,column=2,padx=(8,0),sticky='ew')
         ttk.Label(color_frame,text='Cor das tarjas').pack(side='left',padx=(0,6))
-        self.color_combo=ttk.Combobox(color_frame,textvariable=self.color,values=[v[0] for v in CORES.values()],state='readonly',width=16)
-        self.color_combo.pack(side='left')
+        self.color_selector=ColorSelector(color_frame,textvariable=self.color,colors=CORES,width=16)
+        self.color_selector.pack(side='left')
+        self.color_combo=self.color_selector.combo
+        add_tooltip(self.color_combo, 'Escolha a cor usada para ocultar os campos selecionados.')
+        add_tooltip(self.recipient_entry, 'O destinatário aparece no aviso e no nome do arquivo gerado.')
         self.path_widgets.append(self.recipient_entry)
-        ttk.Label(folders,text='Nome da saída: Destinatario-ddmmyy-nome-original.pdf. Até 120 caracteres no destinatário.').grid(row=3,column=1,columnspan=2,sticky='w')
-        ttk.Label(folders,text='Saída padrão: pasta de entrada (pode alterar). Somente PDFs, sem subpastas. Originais preservados.').grid(row=4,column=0,columnspan=3,sticky='w',pady=(4,0))
+        ttk.Label(folders,text='Nome da cópia',font=('TkDefaultFont',10,'bold')).grid(row=3,column=0,sticky='w',padx=(0,12),pady=(3,0))
+        ttk.Label(folders,text='Destinatario-ddmmyy-nome_original.pdf · Até 120 caracteres no destinatário.').grid(row=3,column=1,sticky='w',pady=(3,0))
+        help_config=help_button(folders, 'Pastas e destinatário',
+            'Selecione uma pasta de entrada contendo PDFs. A saída começa na mesma pasta, mas pode ser alterada.\n\n'
+            'Informe o destinatário para incluí-lo no aviso e no nome das cópias. O aplicativo preserva os originais e não sobrescreve arquivos existentes.')
+        self.config_help=help_config
+        help_config.configure(text='Ajuda: pastas')
+        help_config.grid(row=3,column=2,sticky='e',padx=(8,0))
+        ttk.Label(folders,text='Arquivos incluídos',font=('TkDefaultFont',10,'bold')).grid(row=4,column=0,sticky='w',padx=(0,12),pady=(6,0))
+        ttk.Label(folders,text='PDFs da pasta de entrada; subpastas não incluídas. Os originais são preservados.').grid(row=4,column=1,columnspan=2,sticky='w',pady=(6,0))
         actions = ttk.Frame(root,padding=(16,0,16,10))
         actions.grid(row=1,column=0,sticky='ew')
         self.load_button = ttk.Button(actions,text='Carregar PDFs',command=self.load)
         self.load_button.pack(side='left')
+        self._set_icon(self.load_button,'open')
+        add_tooltip(self.load_button, 'Lista os PDFs da pasta de entrada para seleção e processamento.')
         self.run_button = ttk.Button(actions,text='Processar',command=self.start,state='disabled')
         self.run_button.pack(side='left',padx=8)
+        self._set_icon(self.run_button,'process')
+        add_tooltip(self.run_button, 'Gera cópias dos documentos com os campos marcados ocultos.')
         self.stop_button = ttk.Button(actions,text='Interromper',command=self.stop,state='disabled')
         self.stop_button.pack(side='left')
+        self._set_icon(self.stop_button,'stop')
+        add_tooltip(self.stop_button, 'Interrompe o lote após concluir o arquivo atual.')
         self.manual_button = ttk.Button(actions,text='Modo manual…',command=self.open_manual)
         self.manual_button.pack(side='left',padx=(8,0))
+        self._set_icon(self.manual_button,'manual')
+        add_tooltip(self.manual_button, 'Abra um PDF para marcar manualmente as áreas que deseja ocultar.')
         self.progress = ttk.Progressbar(actions,mode='determinate',length=180)
         self.progress.pack(side='right',fill='x',expand=True,padx=(20,0))
         table = ttk.Frame(root,padding=(16,0))
@@ -143,8 +166,16 @@ class Aplicativo:
         fields = ttk.Frame(preview,padding=(0,0,12,0))
         fields.grid(row=0,column=0,rowspan=2,sticky='nsew')
         fields.columnconfigure(0,weight=1);fields.rowconfigure(2,weight=1)
-        ttk.Label(fields,text='Campos a ocultar',font=('TkDefaultFont',11,'bold')).grid(row=0,column=0,sticky='w')
+        field_header=ttk.Frame(fields)
+        field_header.grid(row=0,column=0,sticky='ew')
+        ttk.Label(field_header,text='Campos a ocultar',font=('TkDefaultFont',11,'bold')).pack(side='left')
         ttk.Label(fields,text='Marcado: ocultar.\nDesmarcado: manter visível.').grid(row=1,column=0,sticky='w',pady=6)
+        help_fields=help_button(field_header, 'Campos a ocultar',
+            'Selecione um documento na lista. Marque os grupos de dados que deseja ocultar; desmarque os que devem permanecer visíveis.\n\n'
+            'As escolhas são individuais para cada documento. Após processar, confira o resultado antes de compartilhar.')
+        self.fields_help=help_fields
+        help_fields.configure(text='Ajuda: campos')
+        help_fields.pack(side='right',padx=(4,0))
         field_canvas=tk.Canvas(fields,width=270,highlightthickness=0)
         field_canvas.grid(row=2,column=0,sticky='nsew')
         field_scroll=ttk.Scrollbar(fields,orient='vertical',command=field_canvas.yview)
@@ -163,8 +194,10 @@ class Aplicativo:
             canvas.grid(row=1,column=col,sticky='nsew',padx=(0,6) if col==1 else (6,0))
             self.canvases[side]=canvas
             canvas.bind('<Configure>',self._resized)
-        self.zoom_button = ttk.Button(root,text='Ampliar comparação…',command=lambda:self.selection(zoom=True),state='disabled')
+        self.zoom_button = ttk.Button(root,text='Conferir original e resultado…',command=lambda:self.selection(zoom=True),state='disabled')
         self.zoom_button.grid(row=4,column=0,pady=8)
+        self._set_icon(self.zoom_button,'compare')
+        add_tooltip(self.zoom_button, 'Abre as imagens em abas com rolagem para conferir os detalhes.')
         footer = ttk.Frame(root,padding=(16,0,16,12))
         footer.grid(row=5,column=0,sticky='ew')
         self.summary_label=tk.Label(footer,textvariable=self.summary,wraplength=820,anchor='w',justify='left',padx=8,pady=5)
@@ -184,6 +217,10 @@ class Aplicativo:
         ttk.Label(update_row,text='Confira o resultado antes de compartilhar. O texto não será selecionável.',wraplength=500).grid(row=0,column=0,sticky='w')
 
         self._clear_previews('Selecione um arquivo.')
+
+    def _set_icon(self, button, name):
+        button._icon=icon(button,name)
+        button.configure(image=button._icon,compound='left')
 
     def _manual_executor(self):
         if self.pool_broken:
@@ -405,8 +442,10 @@ class Aplicativo:
 
     def _zoom(self,previews,index):
         window=tk.Toplevel(self.root)
-        window.title('Conferência ampliada — '+Path(self.jobs[index].origem).name)
+        window.title('Conferir original e resultado — '+Path(self.jobs[index].origem).name)
         window.geometry('1000x780')
+        ttk.Label(window,text='Alterne entre as abas e use as barras de rolagem para conferir os detalhes.',padding=(12,8)).pack(anchor='w')
+        ttk.Button(window,text='Fechar',command=window.destroy).pack(side='bottom',pady=8)
         notebook=ttk.Notebook(window)
         notebook.pack(fill='both',expand=True)
         window.photos=[]
@@ -428,7 +467,6 @@ class Aplicativo:
                 canvas.create_image(0,0,anchor='nw',image=photo)
                 canvas.configure(scrollregion=(0,0,photo.width(),photo.height()))
             else:canvas.create_text(30,30,anchor='nw',text=previews.get(side+'_erro','Prévia indisponível.'),width=700)
-        ttk.Label(window,text='Use as abas Original / Resultado tarjado e as barras de rolagem para conferir os detalhes.').pack(pady=8)
 
     def start(self):
         if not self.jobs or self.running or self.updating or self.manual_exporting:return

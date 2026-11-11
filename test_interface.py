@@ -51,6 +51,38 @@ class InterfaceTest(unittest.TestCase):
         self.app.tree.selection_set('0');self.app.selection()
         self.assertFalse(self.app.field_vars['gestora'].get())
 
+    def test_controles_visuais_e_ajuda_contextual(self):
+        from unittest.mock import patch
+        self.assertIn('original e resultado', self.app.zoom_button.cget('text').lower())
+        for button in (self.app.load_button, self.app.run_button, self.app.stop_button,
+                       self.app.manual_button, self.app.zoom_button, self.app.path_widgets[1]):
+            self.assertTrue(button.cget('image'))
+            self.assertEqual(str(button.cget('compound')), 'left')
+            self.assertTrue(button.cget('text'))
+        for label, color in [('Preto','#000000'),('Branco','#ffffff'),
+                             ('Vermelho escuro','#800000'),('Cinza escuro','#404040')]:
+            self.app.color.set(label)
+            self.assertEqual(self.app.color_selector.swatch.itemcget(
+                self.app.color_selector._rectangle, 'fill'), color)
+        with patch('ui_components.messagebox.showinfo') as help_dialog:
+            self.app.config_help.invoke()
+            self.app.fields_help.invoke()
+            self.assertEqual(help_dialog.call_count, 2)
+        self.assertTrue(hasattr(self.app.run_button, '_ui_tooltip'))
+
+    def test_botoes_principais_cabem_na_janela_minima(self):
+        self.root.geometry('900x650')
+        self.root.update()
+        for widget in (self.app.load_button, self.app.run_button, self.app.stop_button,
+                       self.app.manual_button, self.app.zoom_button, self.app.config_help,
+                       self.app.fields_help, self.app.color_combo):
+            self.assertTrue(widget.winfo_ismapped())
+            self.assertGreater(widget.winfo_width(), 1)
+            self.assertLessEqual(widget.winfo_rootx() + widget.winfo_width(),
+                                 self.root.winfo_rootx() + self.root.winfo_width())
+            self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(),
+                                 self.root.winfo_rooty() + self.root.winfo_height())
+
     def test_saida_padrao_e_escolha_manual(self):
         self.app.target.set('')
         self.app.source.set(str(self.folder/'primeira'))

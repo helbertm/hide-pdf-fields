@@ -62,6 +62,20 @@ class ManualInterfaceTest(unittest.TestCase):
             time.sleep(.02)
         self.fail('A interface não atingiu o estado esperado no prazo.')
 
+    def test_amostra_de_cor_e_ajuda_manual(self):
+        selector = self.viewer.color_selector
+        for name, expected in [('Preto', '#000000'), ('Vermelho escuro', '#800000'),
+                               ('Cinza escuro', '#404040'), ('Branco', '#ffffff')]:
+            self.viewer.mark_color.set(name)
+            self.assertEqual(selector.swatch.itemcget(selector._rectangle, 'fill'), expected)
+        self.assertEqual(selector.swatch.itemcget(selector._rectangle, 'outline'), '#737373')
+        with patch('ui_components.messagebox.showinfo') as dialog:
+            self.viewer.help_button.invoke()
+        self.assertIn('Ajuda', dialog.call_args.args[0])
+        self.assertIn('gerar', dialog.call_args.args[1].lower())
+        self.assertTrue(self.viewer.open_button.cget('image'))
+        self.assertTrue(hasattr(self.viewer.open_button, '_ui_tooltip'))
+
     def test_abrir_navegar_escala_fixa_sem_gravar(self):
         source_hash = hashlib.sha256(self.source.read_bytes()).hexdigest()
         self.viewer.open_path(self.source)
