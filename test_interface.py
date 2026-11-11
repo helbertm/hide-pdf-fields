@@ -51,6 +51,32 @@ class InterfaceTest(unittest.TestCase):
         self.app.tree.selection_set('0');self.app.selection()
         self.assertFalse(self.app.field_vars['gestora'].get())
 
+    def test_campos_aparecem_somente_para_modelo_reconhecido(self):
+        self.root.update_idletasks()
+        self.assertTrue(self.app.fields_panel.winfo_ismapped())
+        self.assertEqual(self.app.preview_frame.grid_columnconfigure(0)['minsize'], 285)
+        self.app.tree.selection_remove(self.app.tree.selection())
+        self.app.selection()
+        self.root.update_idletasks()
+        self.assertFalse(self.app.fields_panel.winfo_ismapped())
+        self.assertEqual(self.app.preview_frame.grid_columnconfigure(0)['minsize'], 0)
+        self.app.jobs[1].tipo = ''
+        self.app.detected.discard(1)
+        self.app.tree.selection_set('1')
+        self.app.selection()
+        self.assertFalse(self.app.fields_panel.winfo_ismapped())
+        self.assertIn('Identificando', self.app.detail.get())
+        self.app.detected.add(1)
+        self.app._show_fields()
+        self.assertFalse(self.app.fields_panel.winfo_ismapped())
+        self.assertIn('Modelo não identificado', self.app.detail.get())
+        self.app.tree.selection_set('0')
+        self.app.selection()
+        self.root.update_idletasks()
+        self.assertTrue(self.app.fields_panel.winfo_ismapped())
+        self.assertIn('gestora', self.app.field_vars)
+        self.assertEqual(self.app.preview_frame.grid_columnconfigure(0)['minsize'], 285)
+
     def test_controles_visuais_e_ajuda_contextual(self):
         from unittest.mock import patch
         self.assertIn('original e resultado', self.app.zoom_button.cget('text').lower())
@@ -206,7 +232,7 @@ class InterfaceTest(unittest.TestCase):
         self.assertTrue(any('serão descartadas' in label for label in labels))
 
     def test_lote_previews_resize_e_ampliacao(self):
-        self.assertEqual(self.root.title(),'Ocultar Dados - Pedido Interno e NFe')
+        self.assertEqual(self.root.title(),'Ocultar Dados Sensíveis - PDF')
         self.assertIsNotNone(self.app.window_icon)
         self.assertEqual(self.app.window_icon.width(),512)
         self.assertEqual(self.app.run_button.cget('text'),'Processar')

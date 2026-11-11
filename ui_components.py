@@ -7,8 +7,53 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 
+class _ColorMenuButton(ttk.Menubutton):
+    """Native menu button retaining the former readonly selector interface."""
+
+    def __init__(self, parent, *, textvariable, values, width):
+        self._values = list(values)
+        self._variable = textvariable
+        super().__init__(parent, textvariable=textvariable, width=width, takefocus=True)
+        self.state(['readonly'])
+        self.bind('<Down>', self._open_menu, add='+')
+        self.bind('<Return>', self._open_menu, add='+')
+
+    def _open_menu(self, _event=None):
+        if 'disabled' not in self.state():
+            self.tk.call('ttk::menubutton::Popdown', self._w)
+        return 'break'
+
+    def configure(self, cnf=None, **kwargs):
+        if isinstance(cnf, dict):
+            kwargs = {**cnf, **kwargs}
+            cnf = None
+        requested = kwargs.get('state')
+        if requested == 'readonly':
+            kwargs['state'] = 'normal'
+        result = super().configure(cnf, **kwargs)
+        if requested == 'readonly':
+            self.state(['readonly', '!disabled'])
+        return result
+
+    config = configure
+
+    def cget(self, key):
+        value = super().cget(key)
+        if key == 'state':
+            return 'readonly' if str(value) == 'normal' else str(value)
+        return value
+
+    def current(self, index=None):
+        if index is None:
+            try:
+                return self._values.index(self._variable.get())
+            except ValueError:
+                return -1
+        self._variable.set(self._values[index])
+
+
 class ColorSelector(ttk.Frame):
-    """Readonly color choice with a bordered swatch and an ordinary combobox."""
+    """Color selector with a bordered sample in each native menu item."""
 
     def __init__(self, parent, *, textvariable, colors, width=16):
         super().__init__(parent)
@@ -21,8 +66,18 @@ class ColorSelector(ttk.Frame):
         self.swatch.pack(side='left', padx=(0, 6))
         self._rectangle = self.swatch.create_rectangle(1, 1, 19, 15,
                                                         outline='#737373', width=1)
-        self.combo = ttk.Combobox(self, textvariable=textvariable,
-                                  values=list(self._colors), state='readonly', width=width)
+        self.combo = _ColorMenuButton(self, textvariable=textvariable,
+                                      values=self._colors, width=width)
+        self.menu = tk.Menu(self.combo, tearoff=False)
+        self._images = []
+        for label, color in self._colors.items():
+            sample = tk.PhotoImage(master=self.combo, width=16, height=14)
+            sample.put('#606060', to=(0, 0, 16, 14))
+            sample.put(color, to=(1, 1, 15, 13))
+            self._images.append(sample)
+            self.menu.add_radiobutton(label=label, variable=textvariable, value=label,
+                                      image=sample, compound='left')
+        self.combo.configure(menu=self.menu)
         self.combo.pack(side='left', fill='x', expand=True)
         self._trace = self._variable.trace_add('write', self._refresh)
         self.bind('<Destroy>', self._destroyed, add='+')
@@ -41,6 +96,7 @@ class ColorSelector(ttk.Frame):
                 pass
             finally:
                 self._variable = None
+                self.combo._variable = None
 
 
 class _Tooltip:

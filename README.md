@@ -1,4 +1,4 @@
-# Ocultar Dados - Pedido Interno e NFe
+# Ocultar Dados Sensíveis - PDF
 
 Aplicativo local para ocultar campos de dois layouts de PDF: pedido interno e nota fiscal de serviço. Tem seleção de campos por documento, comparação antes/depois, aviso com destinatário e processamento em lote. Os PDFs permanecem no computador. Pedidos multipágina com fechamento reconhecido na primeira página podem ser reduzidos a essa página quando as observações são ocultadas; as páginas seguintes são descartadas e o resultado informa a quantidade.
 

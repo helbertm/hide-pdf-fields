@@ -144,7 +144,7 @@ function Install-App {
         $Shortcut.TargetPath = Join-Path $Venv 'Scripts\pythonw.exe'
         $Shortcut.Arguments = '"' + (Join-Path $AppPath 'interface.py') + '"'
         $Shortcut.WorkingDirectory = $AppPath
-        $Shortcut.Description = 'Ocultar Dados - Pedido Interno e NFe'
+        $Shortcut.Description = 'Ocultar Dados Sensíveis - PDF'
         $Shortcut.IconLocation = (Join-Path $AppPath 'assets\icon.ico') + ',0'
         $Shortcut.Save()
         try {

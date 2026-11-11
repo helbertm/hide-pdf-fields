@@ -31,7 +31,7 @@ TIPOS = {'pedido':'Pedido', 'nota':'Nota fiscal', '':'—'}
 class Aplicativo:
     def __init__(self, root):
         self.root = root
-        root.title('Ocultar Dados - Pedido Interno e NFe')
+        root.title('Ocultar Dados Sensíveis - PDF')
         try:
             icon = tk.PhotoImage(master=root, file=str(Path(__file__).resolve().parent/'assets'/'icon.png'))
             root.iconphoto(True, icon)
@@ -157,12 +157,14 @@ class Aplicativo:
         self.detail_label=ttk.Label(table,textvariable=self.detail,wraplength=820)
         self.detail_label.grid(row=1,column=0,columnspan=2,sticky='w',pady=8)
         preview = ttk.Frame(root,padding=(16,0))
+        self.preview_frame = preview
         preview.grid(row=3,column=0,sticky='nsew')
         preview.columnconfigure(0,weight=0,minsize=285)
         preview.columnconfigure(1,weight=1,uniform='p')
         preview.columnconfigure(2,weight=1,uniform='p')
         preview.rowconfigure(1,weight=1)
         fields = ttk.Frame(preview,padding=(0,0,12,0))
+        self.fields_panel = fields
         fields.grid(row=0,column=0,rowspan=2,sticky='nsew')
         fields.columnconfigure(0,weight=1);fields.rowconfigure(2,weight=1)
         field_header=ttk.Frame(fields)
@@ -215,6 +217,7 @@ class Aplicativo:
         ttk.Label(update_row,text='Confira o resultado antes de compartilhar. O texto não será selecionável.',wraplength=500).grid(row=0,column=0,sticky='w')
 
         self._clear_previews('Selecione um arquivo.')
+        self._show_fields()
 
     def _set_icon(self, button, name):
         button._icon=icon(button,name)
@@ -353,6 +356,7 @@ class Aplicativo:
             self.preview_request=None
             self._clear_previews('Selecione um arquivo.')
             self.zoom_button.configure(state='disabled')
+            self._show_fields()
             return
         job=self.jobs[i]
         self.original_title.set('Original')
@@ -369,10 +373,20 @@ class Aplicativo:
         for child in self.fields_frame.winfo_children():child.destroy()
         self.field_vars={}
         i=self.selected()
-        if i is None or not self.jobs[i].tipo:
-            ttk.Label(self.fields_frame,text=('Modelo não identificado; seleção de campos indisponível.' if i in self.detected else 'Identificando o modelo…') if i is not None else 'Selecione um documento.',wraplength=260).pack(anchor='w')
-            self.fields_summary.set('Todos os campos são ocultados por padrão.')
+        if i is None or self.jobs[i].tipo not in CAMPOS:
+            self.fields_panel.grid_remove()
+            self.preview_frame.columnconfigure(0,minsize=0)
+            if i is not None:
+                job=self.jobs[i]
+                detail=f'{Path(job.origem).name} — {LABELS[job.status]}. {job.mensagem}'
+                if i in self.detected:
+                    detail += ' Modelo não identificado; seleção de campos indisponível.'
+                elif job.status == 'aguardando':
+                    detail += ' Identificando o modelo…'
+                self.detail.set(detail)
             return
+        self.preview_frame.columnconfigure(0,minsize=285)
+        self.fields_panel.grid()
         job=self.jobs[i]
         defaults=list(CAMPOS[job.tipo])
         chosen=self.choices.get(i,defaults)
