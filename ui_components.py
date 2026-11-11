@@ -102,8 +102,6 @@ def help_button(parent, title, text):
     """Return a focusable help button with its own contextual hint."""
     button = ttk.Button(parent, text='?', width=3, takefocus=True,
                         command=lambda: messagebox.showinfo(title, text, parent=parent))
-    button._help_icon = icon(button, 'help')
-    button.configure(image=button._help_icon, compound='none')
     add_tooltip(button, f'Ajuda: {title}')
     return button
 

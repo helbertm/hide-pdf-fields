@@ -67,7 +67,7 @@ class InterfaceTest(unittest.TestCase):
         for button, context in ((self.app.config_help, 'Pastas e destinatário'),
                                 (self.app.fields_help, 'Campos a ocultar')):
             self.assertEqual(button.cget('text'), '?')
-            self.assertTrue(button.cget('image'))
+            self.assertFalse(button.cget('image'))
             self.assertIn(context, button._ui_tooltip.text)
             self.assertEqual(str(button.cget('takefocus')), '1')
         with patch('ui_components.messagebox.showinfo') as help_dialog:

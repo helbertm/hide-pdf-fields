@@ -49,7 +49,7 @@ class SharedUiTest(unittest.TestCase):
         self.assertEqual(help_widget.cget('text'), '?')
         self.assertEqual(int(help_widget.cget('width')), 3)
         self.assertEqual(help_widget._ui_tooltip.text, 'Ajuda: Título')
-        self.assertTrue(help_widget.cget('image'))
+        self.assertFalse(help_widget.cget('image'))
         self.assertTrue(int(help_widget.cget('takefocus')))
         with patch('ui_components.messagebox.showinfo') as show:
             help_widget.invoke()
