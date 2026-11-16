@@ -13,6 +13,7 @@ import threading
 import shutil
 import copy
 from atualizacao import VERSAO, consultar, baixar
+from novidades import obter_novidades, deve_exibir, marcar_vista
 try:
     import tkinter as tk
     from tkinter import ttk, filedialog, messagebox
@@ -82,6 +83,17 @@ class Aplicativo:
         if sys.platform == "win32":
             self.check_update()
         root.after(150,self.poll_update)
+        root.after(250,self._mostrar_novidades)
+
+    def _mostrar_novidades(self):
+        """Show this version's release notes once, after the window is ready."""
+        if self.closing:
+            return
+        texto = obter_novidades(VERSAO)
+        if not texto or not deve_exibir(VERSAO):
+            return
+        messagebox.showinfo(f'Novidades da versão {VERSAO}', texto, parent=self.root)
+        marcar_vista(VERSAO)
 
     def _build(self):
         root = self.root

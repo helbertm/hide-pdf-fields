@@ -12,7 +12,10 @@ from test_tarjar import fixture
 class InterfaceTest(unittest.TestCase):
     def setUp(self):
         import tkinter as tk
+        from unittest.mock import patch
         from interface import Aplicativo
+        self.news_patch=patch('interface.deve_exibir', return_value=False)
+        self.news_patch.start();self.addCleanup(self.news_patch.stop)
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.folder=Path(self.tmp.name)/'in';self.folder.mkdir()
         fixture(self.folder/'A.pdf');fixture(self.folder/'B.pdf','nota')
@@ -40,6 +43,34 @@ class InterfaceTest(unittest.TestCase):
             if condition():return
             time.sleep(.02)
         self.fail('Interface não atingiu o estado esperado dentro do prazo.')
+
+    def test_novidades_exibidas_uma_vez_e_marcadas_apos_fechamento(self):
+        from unittest.mock import patch
+        from atualizacao import VERSAO
+        events=[]
+        with patch('interface.obter_novidades', return_value='Modo manual disponível') as content, \
+             patch('interface.deve_exibir', return_value=True), \
+             patch('interface.messagebox.showinfo', side_effect=lambda *a, **kw: events.append('exibido')), \
+             patch('interface.marcar_vista', side_effect=lambda *a, **kw: events.append('registrado')) as marked:
+            self.app._mostrar_novidades()
+        content.assert_called_once_with(VERSAO)
+        marked.assert_called_once_with(VERSAO)
+        self.assertEqual(events, ['exibido','registrado'])
+
+    def test_novidades_nao_exibidas_sem_conteudo_ou_quando_ja_vistas(self):
+        from unittest.mock import patch
+        with patch('interface.obter_novidades', return_value=None), \
+             patch('interface.deve_exibir') as pending, \
+             patch('interface.messagebox.showinfo') as dialog, \
+             patch('interface.marcar_vista') as marked:
+            self.app._mostrar_novidades()
+            pending.assert_not_called();dialog.assert_not_called();marked.assert_not_called()
+        with patch('interface.obter_novidades', return_value='Novidade'), \
+             patch('interface.deve_exibir', return_value=False), \
+             patch('interface.messagebox.showinfo') as dialog, \
+             patch('interface.marcar_vista') as marked:
+            self.app._mostrar_novidades()
+            dialog.assert_not_called();marked.assert_not_called()
 
     def test_selecoes_preservam_widgets_e_independencia(self):
         before=self.app.fields_frame.winfo_children()

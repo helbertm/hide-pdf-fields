@@ -20,6 +20,11 @@ class ManualInterfaceTest(unittest.TestCase):
     def setUp(self):
         import tkinter as tk
         from interface import Aplicativo
+        # A apresentação de novidades é exercitada nos testes próprios da
+        # janela principal; aqui não deve abrir diálogos nem tocar no perfil.
+        novidades = patch('interface.deve_exibir', return_value=False)
+        novidades.start()
+        self.addCleanup(novidades.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.folder = Path(self.tmp.name)

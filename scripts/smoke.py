@@ -6,6 +6,7 @@ import pymupdf
 import tkinter
 import manual_pdf
 import ui_components
+import novidades
 import manual_interface
 import manual_export
 import interface
