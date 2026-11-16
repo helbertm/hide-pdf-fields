@@ -60,6 +60,7 @@ class Aplicativo:
         self.update_checking = False
         self.stopping = False
         self.closing = False
+        self.news_window = None
         self.index = 0
         self.active = None
         self.preview_future = None
@@ -87,13 +88,69 @@ class Aplicativo:
 
     def _mostrar_novidades(self):
         """Show this version's release notes once, after the window is ready."""
-        if self.closing:
+        if self.closing or self.news_window is not None:
             return
         texto = obter_novidades(VERSAO)
         if not texto or not deve_exibir(VERSAO):
             return
-        messagebox.showinfo(f'Novidades da versão {VERSAO}', texto, parent=self.root)
-        marcar_vista(VERSAO)
+        window = tk.Toplevel(self.root)
+        self.news_window = window
+        window.title(f'Novidades da versão {VERSAO}')
+        window.transient(self.root)
+        window.geometry('560x370')
+        window.minsize(360, 260)
+        window.columnconfigure(0, weight=1)
+        window.rowconfigure(1, weight=1)
+
+        ttk.Label(window, text=f'Novidades da versão {VERSAO}',
+                  font=('TkDefaultFont', 13, 'bold'), padding=(20, 18, 20, 8)).grid(
+                      row=0, column=0, sticky='w')
+        content = ttk.Frame(window, padding=(20, 0, 20, 0))
+        content.grid(row=1, column=0, sticky='nsew')
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(0, weight=1)
+        body = tk.Text(content, wrap='word', font='TkDefaultFont', relief='flat',
+                       borderwidth=0, highlightthickness=0, takefocus=True,
+                       spacing1=2, spacing3=8)
+        window.news_body = body
+        body.grid(row=0, column=0, sticky='nsew')
+        scrollbar = ttk.Scrollbar(content, orient='vertical', command=body.yview)
+        scrollbar.grid(row=0, column=1, sticky='ns')
+        body.configure(yscrollcommand=scrollbar.set)
+        heading, separator, remainder = texto.partition('\n\n')
+        body.tag_configure('heading', font=('TkDefaultFont', 11, 'bold'))
+        body.insert('end', heading, 'heading')
+        if separator:
+            body.insert('end', '\n\n' + remainder)
+        body.configure(state='disabled')
+
+        footer = ttk.Frame(window, padding=(20, 12, 20, 16))
+        footer.grid(row=2, column=0, sticky='ew')
+
+        def close_news(_event=None):
+            if self.news_window is not window:
+                return
+            self.news_window = None
+            try:
+                window.grab_release()
+            except tk.TclError:
+                pass
+            window.destroy()
+            marcar_vista(VERSAO)
+
+        def forget_destroyed(event):
+            if event.widget is window and self.news_window is window:
+                self.news_window = None
+
+        close_button = ttk.Button(footer, text='Entendi', command=close_news)
+        window.news_button = close_button
+        close_button.pack(side='right')
+        window.protocol('WM_DELETE_WINDOW', close_news)
+        window.bind('<Escape>', close_news)
+        window.bind('<Return>', close_news)
+        window.bind('<Destroy>', forget_destroyed, add='+')
+        window.grab_set()
+        window.after_idle(close_button.focus_set)
 
     def _build(self):
         root = self.root

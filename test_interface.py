@@ -47,30 +47,69 @@ class InterfaceTest(unittest.TestCase):
     def test_novidades_exibidas_uma_vez_e_marcadas_apos_fechamento(self):
         from unittest.mock import patch
         from atualizacao import VERSAO
-        events=[]
-        with patch('interface.obter_novidades', return_value='Modo manual disponível') as content, \
+        text='Modo manual disponível\n\nPrimeiro parágrafo.\n\nSegundo parágrafo.'
+        with patch('interface.obter_novidades', return_value=text) as content, \
              patch('interface.deve_exibir', return_value=True), \
-             patch('interface.messagebox.showinfo', side_effect=lambda *a, **kw: events.append('exibido')), \
-             patch('interface.marcar_vista', side_effect=lambda *a, **kw: events.append('registrado')) as marked:
+             patch('interface.marcar_vista') as marked:
             self.app._mostrar_novidades()
+            window=self.app.news_window
+            self.root.update_idletasks()
+            self.assertEqual(window.news_body.get('1.0','end-1c'),text)
+            self.assertEqual(window.news_body.cget('wrap'),'word')
+            self.assertEqual(window.news_button.cget('text'),'Entendi')
+            marked.assert_not_called()
+            self.app._mostrar_novidades()
+            self.assertIs(self.app.news_window,window)
+            window.geometry('360x260');self.root.update()
+            self.assertLessEqual(window.news_button.winfo_rooty()+window.news_button.winfo_height(),
+                                 window.winfo_rooty()+window.winfo_height())
+            window.news_button.invoke()
+            marked.assert_called_once_with(VERSAO)
+            self.assertIsNone(self.app.news_window)
         content.assert_called_once_with(VERSAO)
-        marked.assert_called_once_with(VERSAO)
-        self.assertEqual(events, ['exibido','registrado'])
+
+    def test_novidades_fechamento_pelo_teclado_e_destruicao_indireta(self):
+        from unittest.mock import patch
+        from atualizacao import VERSAO
+        with patch('interface.obter_novidades', return_value='Título\n\n'+('Texto longo. ' * 500)), \
+             patch('interface.deve_exibir', return_value=True), \
+             patch('interface.marcar_vista') as marked:
+            self.app._mostrar_novidades();window=self.app.news_window
+            self.root.update()
+            window.event_generate('<Escape>');self.root.update()
+            marked.assert_called_once_with(VERSAO)
+            self.app._mostrar_novidades();window=self.app.news_window
+            window.destroy();self.root.update()
+            self.assertIsNone(self.app.news_window)
+            marked.assert_called_once_with(VERSAO)
+
+    def test_novidades_enter_e_fechar_janela_confirmam(self):
+        from unittest.mock import patch
+        with patch('interface.obter_novidades', return_value='Título\n\nConteúdo'), \
+             patch('interface.deve_exibir', return_value=True), \
+             patch('interface.marcar_vista') as marked:
+            self.app._mostrar_novidades();window=self.app.news_window
+            self.root.update()
+            window.event_generate('<Return>');self.root.update()
+            self.assertIsNone(self.app.news_window)
+            self.assertEqual(marked.call_count,1)
+            self.app._mostrar_novidades();window=self.app.news_window
+            self.root.tk.call(window.protocol('WM_DELETE_WINDOW'))
+            self.assertIsNone(self.app.news_window)
+            self.assertEqual(marked.call_count,2)
 
     def test_novidades_nao_exibidas_sem_conteudo_ou_quando_ja_vistas(self):
         from unittest.mock import patch
         with patch('interface.obter_novidades', return_value=None), \
              patch('interface.deve_exibir') as pending, \
-             patch('interface.messagebox.showinfo') as dialog, \
              patch('interface.marcar_vista') as marked:
             self.app._mostrar_novidades()
-            pending.assert_not_called();dialog.assert_not_called();marked.assert_not_called()
+            pending.assert_not_called();self.assertIsNone(self.app.news_window);marked.assert_not_called()
         with patch('interface.obter_novidades', return_value='Novidade'), \
              patch('interface.deve_exibir', return_value=False), \
-             patch('interface.messagebox.showinfo') as dialog, \
              patch('interface.marcar_vista') as marked:
             self.app._mostrar_novidades()
-            dialog.assert_not_called();marked.assert_not_called()
+            self.assertIsNone(self.app.news_window);marked.assert_not_called()
 
     def test_selecoes_preservam_widgets_e_independencia(self):
         before=self.app.fields_frame.winfo_children()
