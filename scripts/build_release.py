@@ -2,8 +2,16 @@
 from pathlib import Path
 import hashlib
 import zipfile
+import sys
 root=Path(__file__).resolve().parents[1]
-files=['assets/icon.png','assets/icon.ico','interface.py','atualizacao.py','tarjar.py','lote.py','requirements-win.lock','README.md','USO.md','THIRD_PARTY.md','scripts/smoke.py']
+sys.path.insert(0,str(root))
+from atualizacao import VERSAO
+from novidades import verificar_notas_da_versao
+try:
+    verificar_notas_da_versao(VERSAO)
+except ValueError as exc:
+    raise SystemExit(str(exc)) from exc
+files=['assets/icon.png','assets/icon.ico','interface.py','ui_components.py','novidades.py','manual_pdf.py','manual_interface.py','manual_export.py','atualizacao.py','tarjar.py','lote.py','requirements-win.lock','README.md','USO.md','THIRD_PARTY.md','scripts/smoke.py']
 out=root/'dist';out.mkdir(exist_ok=True)
 archive=out/'hide-pdf-fields-windows.zip'
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as z:

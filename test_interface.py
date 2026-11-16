@@ -1,5 +1,6 @@
 """Testes nativos opcionais: TARJA_GUI_TESTS=1 python -m unittest test_interface -v."""
 import os
+import gc
 import tempfile
 import time
 import unittest
@@ -11,11 +12,17 @@ from test_tarjar import fixture
 class InterfaceTest(unittest.TestCase):
     def setUp(self):
         import tkinter as tk
+        from unittest.mock import patch
         from interface import Aplicativo
+        self.news_patch=patch('interface.deve_exibir', return_value=False)
+        self.news_patch.start();self.addCleanup(self.news_patch.stop)
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.folder=Path(self.tmp.name)/'in';self.folder.mkdir()
         fixture(self.folder/'A.pdf');fixture(self.folder/'B.pdf','nota')
         self.root=tk.Tk();self.app=Aplicativo(self.root)
+        # Each notification test opens the window explicitly. Prevent the
+        # delayed startup callback from racing with its patched state.
+        self.root.after_cancel(self.app.news_after_id)
         self.app.source.set(str(self.folder));self.app.target.set(str(Path(self.tmp.name)/'out'))
         self.app.recipient.set('Equipe de teste')
         self.app.load()
@@ -26,6 +33,11 @@ class InterfaceTest(unittest.TestCase):
         self.app.pool.shutdown(wait=True,cancel_futures=True)
         try:self.root.destroy()
         except Exception:pass
+        self.app._release_tk_resources()
+        # Não deixar o interpretador de um teste para o GC da thread do próximo executor.
+        self.app = None
+        self.root = None
+        gc.collect()
 
     def pump(self,condition,timeout=30):
         until=time.monotonic()+timeout
@@ -34,6 +46,107 @@ class InterfaceTest(unittest.TestCase):
             if condition():return
             time.sleep(.02)
         self.fail('Interface não atingiu o estado esperado dentro do prazo.')
+
+    def invoke_key_binding(self, window, key):
+        """Aciona o atalho real; o runner pode não ter uma janela ativa no Windows."""
+        import re
+        window.focus_force()
+        self.root.update()
+        if window.focus_get() is window:
+            window.event_generate(f'<{key}>')
+            self.root.update()
+            return
+        # Em sessão sem foco, Tk descarta eventos de teclado sintéticos. Executar
+        # o callback registrado na própria associação mantém o teste independente
+        # do gerenciador de janelas, sem afirmar que houve uma tecla física.
+        binding = window.bind(f'<{key}>')
+        match = re.search(r'\[([^\s]+) ', binding)
+        self.assertIsNotNone(match, f'Atalho {key} não está associado')
+        args = ['0'] * 19
+        args[10] = ''
+        args[12] = key
+        args[14] = str(window)
+        args[15] = '2'
+        window.tk.call(match.group(1), *args)
+        self.root.update()
+
+    def test_novidades_exibidas_uma_vez_e_marcadas_apos_fechamento(self):
+        from unittest.mock import patch
+        from atualizacao import VERSAO
+        text='Modo manual disponível\n\nPrimeiro parágrafo.\n\nSegundo parágrafo.'
+        with patch('interface.obter_novidades', return_value=text) as content, \
+             patch('interface.deve_exibir', return_value=True), \
+             patch('interface.marcar_vista') as marked:
+            self.app._mostrar_novidades()
+            window=self.app.news_window
+            self.root.update_idletasks()
+            self.assertEqual(window.news_body.get('1.0','end-1c'),text)
+            self.assertEqual(window.news_body.cget('wrap'),'word')
+            self.assertEqual(window.news_button.cget('text'),'Entendi')
+            marked.assert_not_called()
+            self.app._mostrar_novidades()
+            self.assertIs(self.app.news_window,window)
+            window.geometry('360x260');self.root.update()
+            self.assertLessEqual(window.news_button.winfo_rooty()+window.news_button.winfo_height(),
+                                 window.winfo_rooty()+window.winfo_height())
+            window.news_button.invoke()
+            marked.assert_called_once_with(VERSAO)
+            self.assertIsNone(self.app.news_window)
+        content.assert_called_once_with(VERSAO)
+
+    def test_novidades_fechamento_pelo_teclado_e_destruicao_indireta(self):
+        from unittest.mock import patch
+        from atualizacao import VERSAO
+        with patch('interface.obter_novidades', return_value='Título\n\n'+('Texto longo. ' * 500)), \
+             patch('interface.deve_exibir', return_value=True), \
+             patch('interface.marcar_vista') as marked:
+            self.app._mostrar_novidades();window=self.app.news_window
+            self.root.update()
+            self.invoke_key_binding(window, 'Escape')
+            marked.assert_called_once_with(VERSAO)
+            self.app._mostrar_novidades();window=self.app.news_window
+            window.destroy();self.root.update()
+            self.assertIsNone(self.app.news_window)
+            marked.assert_called_once_with(VERSAO)
+
+    def test_novidades_enter_e_fechar_janela_confirmam(self):
+        from unittest.mock import patch
+        with patch('interface.obter_novidades', return_value='Título\n\nConteúdo'), \
+             patch('interface.deve_exibir', return_value=True), \
+             patch('interface.marcar_vista') as marked:
+            self.app._mostrar_novidades();window=self.app.news_window
+            self.root.update()
+            self.invoke_key_binding(window, 'Return')
+            self.assertIsNone(self.app.news_window)
+            self.assertEqual(marked.call_count,1)
+            self.app._mostrar_novidades();window=self.app.news_window
+            self.root.tk.call(window.protocol('WM_DELETE_WINDOW'))
+            self.assertIsNone(self.app.news_window)
+            self.assertEqual(marked.call_count,2)
+
+    def test_novidades_atalho_em_sessao_sem_foco(self):
+        from unittest.mock import patch
+        with patch('interface.obter_novidades', return_value='Título\n\nConteúdo'), \
+             patch('interface.deve_exibir', return_value=True), \
+             patch('interface.marcar_vista') as marked:
+            self.app._mostrar_novidades();window=self.app.news_window
+            with patch.object(window, 'focus_get', return_value=None):
+                self.invoke_key_binding(window, 'Escape')
+            self.assertIsNone(self.app.news_window)
+            self.assertEqual(marked.call_count,1)
+
+    def test_novidades_nao_exibidas_sem_conteudo_ou_quando_ja_vistas(self):
+        from unittest.mock import patch
+        with patch('interface.obter_novidades', return_value=None), \
+             patch('interface.deve_exibir') as pending, \
+             patch('interface.marcar_vista') as marked:
+            self.app._mostrar_novidades()
+            pending.assert_not_called();self.assertIsNone(self.app.news_window);marked.assert_not_called()
+        with patch('interface.obter_novidades', return_value='Novidade'), \
+             patch('interface.deve_exibir', return_value=False), \
+             patch('interface.marcar_vista') as marked:
+            self.app._mostrar_novidades()
+            self.assertIsNone(self.app.news_window);marked.assert_not_called()
 
     def test_selecoes_preservam_widgets_e_independencia(self):
         before=self.app.fields_frame.winfo_children()
@@ -44,6 +157,70 @@ class InterfaceTest(unittest.TestCase):
         self.assertTrue(all(v.get() for v in self.app.field_vars.values()))
         self.app.tree.selection_set('0');self.app.selection()
         self.assertFalse(self.app.field_vars['gestora'].get())
+
+    def test_campos_aparecem_somente_para_modelo_reconhecido(self):
+        self.root.update_idletasks()
+        self.assertTrue(self.app.fields_panel.winfo_ismapped())
+        self.assertEqual(self.app.preview_frame.grid_columnconfigure(0)['minsize'], 285)
+        self.app.tree.selection_remove(self.app.tree.selection())
+        self.app.selection()
+        self.root.update_idletasks()
+        self.assertFalse(self.app.fields_panel.winfo_ismapped())
+        self.assertEqual(self.app.preview_frame.grid_columnconfigure(0)['minsize'], 0)
+        self.app.jobs[1].tipo = ''
+        self.app.detected.discard(1)
+        self.app.tree.selection_set('1')
+        self.app.selection()
+        self.assertFalse(self.app.fields_panel.winfo_ismapped())
+        self.assertIn('Identificando', self.app.detail.get())
+        self.app.detected.add(1)
+        self.app._show_fields()
+        self.assertFalse(self.app.fields_panel.winfo_ismapped())
+        self.assertIn('Modelo não identificado', self.app.detail.get())
+        self.app.tree.selection_set('0')
+        self.app.selection()
+        self.root.update_idletasks()
+        self.assertTrue(self.app.fields_panel.winfo_ismapped())
+        self.assertIn('gestora', self.app.field_vars)
+        self.assertEqual(self.app.preview_frame.grid_columnconfigure(0)['minsize'], 285)
+
+    def test_controles_visuais_e_ajuda_contextual(self):
+        from unittest.mock import patch
+        self.assertIn('original e resultado', self.app.zoom_button.cget('text').lower())
+        for button in (self.app.load_button, self.app.run_button, self.app.stop_button,
+                       self.app.manual_button, self.app.zoom_button, self.app.path_widgets[1]):
+            self.assertTrue(button.cget('image'))
+            self.assertEqual(str(button.cget('compound')), 'left')
+            self.assertTrue(button.cget('text'))
+        for label, color in [('Preto','#000000'),('Branco','#ffffff'),
+                             ('Vermelho escuro','#800000'),('Cinza escuro','#404040')]:
+            self.app.color.set(label)
+            self.assertEqual(self.app.color_selector.swatch.itemcget(
+                self.app.color_selector._rectangle, 'fill'), color)
+        for button, context in ((self.app.config_help, 'Pastas e destinatário'),
+                                (self.app.fields_help, 'Campos a ocultar')):
+            self.assertEqual(button.cget('text'), '?')
+            self.assertFalse(button.cget('image'))
+            self.assertIn(context, button._ui_tooltip.text)
+            self.assertEqual(str(button.cget('takefocus')), '1')
+        with patch('ui_components.messagebox.showinfo') as help_dialog:
+            self.app.config_help.invoke()
+            self.app.fields_help.invoke()
+            self.assertEqual(help_dialog.call_count, 2)
+        self.assertTrue(hasattr(self.app.run_button, '_ui_tooltip'))
+
+    def test_botoes_principais_cabem_na_janela_minima(self):
+        self.root.geometry('900x650')
+        self.root.update()
+        for widget in (self.app.load_button, self.app.run_button, self.app.stop_button,
+                       self.app.manual_button, self.app.zoom_button, self.app.config_help,
+                       self.app.fields_help, self.app.color_combo):
+            self.assertTrue(widget.winfo_ismapped())
+            self.assertGreater(widget.winfo_width(), 1)
+            self.assertLessEqual(widget.winfo_rootx() + widget.winfo_width(),
+                                 self.root.winfo_rootx() + self.root.winfo_width())
+            self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(),
+                                 self.root.winfo_rooty() + self.root.winfo_height())
 
     def test_saida_padrao_e_escolha_manual(self):
         self.app.target.set('')
@@ -98,6 +275,41 @@ class InterfaceTest(unittest.TestCase):
         with patch('interface.messagebox.askyesno',return_value=False):self.app.begin_update()
         self.assertFalse(self.app.updating)
 
+    def test_exportacao_manual_bloqueia_e_restaura_acoes(self):
+        from unittest.mock import patch
+        self.app.run_button.configure(state='normal')
+        self.app.load_button.configure(state='disabled')
+        self.app.update_info={'version':'v9.0.0','assets':{}}
+        self.app.update_button.configure(state='normal')
+        self.app._manual_export_started()
+        self.assertTrue(self.app.manual_exporting)
+        for widget in (self.app.run_button,self.app.load_button,self.app.manual_button,
+                       self.app.color_combo,self.app.zoom_button,self.app.update_button,
+                       *self.app.path_widgets):
+            self.assertIn('disabled',widget.state())
+        self.assertIn('disabled',self.app.tree.state())
+        self.app.selection()
+        self.assertIn('disabled',self.app.zoom_button.state())
+        self.app.update_queue.put(('checked',self.app.update_info))
+        self.app.poll_update()
+        self.assertIn('disabled',self.app.update_button.state())
+        with patch('interface.messagebox.askyesno') as confirm, patch('interface.messagebox.showinfo') as notice:
+            self.app.start()
+            self.app.begin_update()
+            self.app.close()
+            confirm.assert_not_called()
+            notice.assert_called_once()
+        self.assertFalse(self.app.running)
+        self.assertFalse(self.app.updating)
+        self.assertFalse(self.app.closing)
+        self.app._manual_export_finished()
+        self.assertFalse(self.app.manual_exporting)
+        self.assertNotIn('disabled',self.app.run_button.state())
+        self.assertIn('disabled',self.app.load_button.state())
+        self.assertNotIn('disabled',self.app.manual_button.state())
+        self.assertNotIn('disabled',self.app.tree.state())
+        self.assertNotIn('disabled',self.app.update_button.state())
+
     def test_atualizacao_congela_versao_durante_download(self):
         from unittest.mock import patch
         release={'version':'v2.0.0','assets':{'hide-pdf-fields-windows.zip':{'sha256':'a'*64}}}
@@ -127,7 +339,7 @@ class InterfaceTest(unittest.TestCase):
         self.assertTrue(any('serão descartadas' in label for label in labels))
 
     def test_lote_previews_resize_e_ampliacao(self):
-        self.assertEqual(self.root.title(),'Ocultar Dados - Pedido Interno e NFe')
+        self.assertEqual(self.root.title(),'Ocultar Dados Sensíveis - PDF')
         self.assertIsNotNone(self.app.window_icon)
         self.assertEqual(self.app.window_icon.width(),512)
         self.assertEqual(self.app.run_button.cget('text'),'Processar')

@@ -13,6 +13,7 @@ import threading
 import shutil
 import copy
 from atualizacao import VERSAO, consultar, baixar
+from novidades import obter_novidades, deve_exibir, marcar_vista
 try:
     import tkinter as tk
     from tkinter import ttk, filedialog, messagebox
@@ -20,6 +21,8 @@ except ImportError:
     raise SystemExit('Tkinter indisponível. Instale Python com Tcl/Tk (python.org) ou o pacote python3-tk do sistema. O modo tarjar.py --pasta continua disponível.')
 from tarjar import validar_destinatario, CORES
 from lote import Resultado, descobrir, processar_arquivo, comparar, Recusado, CAMPOS
+from manual_interface import VisualizadorManual
+from ui_components import ColorSelector, add_tooltip, help_button, icon
 
 LABELS = {'aguardando':'Aguardando', 'processando':'Processando', 'concluido':'Concluído',
           'recusado':'Recusado', 'falhou':'Falhou', 'cancelado':'Cancelado', 'ignorado':'Ignorado'}
@@ -29,7 +32,7 @@ TIPOS = {'pedido':'Pedido', 'nota':'Nota fiscal', '':'—'}
 class Aplicativo:
     def __init__(self, root):
         self.root = root
-        root.title('Ocultar Dados - Pedido Interno e NFe')
+        root.title('Ocultar Dados Sensíveis - PDF')
         try:
             icon = tk.PhotoImage(master=root, file=str(Path(__file__).resolve().parent/'assets'/'icon.png'))
             root.iconphoto(True, icon)
@@ -47,6 +50,9 @@ class Aplicativo:
         self.page_counts = {}
         self.resize_after = None
         self.pool_broken = False
+        self.manual_viewer = None
+        self.manual_exporting = False
+        self._manual_export_states = []
         self.running = False
         self.updating = False
         self.update_info = None
@@ -54,6 +60,7 @@ class Aplicativo:
         self.update_checking = False
         self.stopping = False
         self.closing = False
+        self.news_window = None
         self.index = 0
         self.active = None
         self.preview_future = None
@@ -77,6 +84,73 @@ class Aplicativo:
         if sys.platform == "win32":
             self.check_update()
         root.after(150,self.poll_update)
+        self.news_after_id = root.after(250,self._mostrar_novidades)
+
+    def _mostrar_novidades(self):
+        """Show this version's release notes once, after the window is ready."""
+        if self.closing or self.news_window is not None:
+            return
+        texto = obter_novidades(VERSAO)
+        if not texto or not deve_exibir(VERSAO):
+            return
+        window = tk.Toplevel(self.root)
+        self.news_window = window
+        window.title(f'Novidades da versão {VERSAO}')
+        window.transient(self.root)
+        window.geometry('560x370')
+        window.minsize(360, 260)
+        window.columnconfigure(0, weight=1)
+        window.rowconfigure(1, weight=1)
+
+        ttk.Label(window, text=f'Novidades da versão {VERSAO}',
+                  font=('TkDefaultFont', 13, 'bold'), padding=(20, 18, 20, 8)).grid(
+                      row=0, column=0, sticky='w')
+        content = ttk.Frame(window, padding=(20, 0, 20, 0))
+        content.grid(row=1, column=0, sticky='nsew')
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(0, weight=1)
+        body = tk.Text(content, wrap='word', font='TkDefaultFont', relief='flat',
+                       borderwidth=0, highlightthickness=0, takefocus=True,
+                       spacing1=2, spacing3=8)
+        window.news_body = body
+        body.grid(row=0, column=0, sticky='nsew')
+        scrollbar = ttk.Scrollbar(content, orient='vertical', command=body.yview)
+        scrollbar.grid(row=0, column=1, sticky='ns')
+        body.configure(yscrollcommand=scrollbar.set)
+        heading, separator, remainder = texto.partition('\n\n')
+        body.tag_configure('heading', font=('TkDefaultFont', 11, 'bold'))
+        body.insert('end', heading, 'heading')
+        if separator:
+            body.insert('end', '\n\n' + remainder)
+        body.configure(state='disabled')
+
+        footer = ttk.Frame(window, padding=(20, 12, 20, 16))
+        footer.grid(row=2, column=0, sticky='ew')
+
+        def close_news(_event=None):
+            if self.news_window is not window:
+                return
+            self.news_window = None
+            try:
+                window.grab_release()
+            except tk.TclError:
+                pass
+            window.destroy()
+            marcar_vista(VERSAO)
+
+        def forget_destroyed(event):
+            if event.widget is window and self.news_window is window:
+                self.news_window = None
+
+        close_button = ttk.Button(footer, text='Entendi', command=close_news)
+        window.news_button = close_button
+        close_button.pack(side='right')
+        window.protocol('WM_DELETE_WINDOW', close_news)
+        window.bind('<Escape>', close_news)
+        window.bind('<Return>', close_news)
+        window.bind('<Destroy>', forget_destroyed, add='+')
+        window.grab_set()
+        window.after_idle(close_button.focus_set)
 
     def _build(self):
         root = self.root
@@ -91,7 +165,10 @@ class Aplicativo:
             entry = ttk.Entry(folders,textvariable=var)
             entry.grid(row=row,column=1,sticky='ew',pady=4)
             button = ttk.Button(folders,text='Escolher…',command=lambda v=var:self.choose(v))
-            button.grid(row=row,column=2,padx=(8,0),pady=4)
+            button.grid(row=row,column=2,padx=(8,0),pady=4,sticky='e')
+            self._set_icon(button, 'folder')
+            add_tooltip(button, 'Procurar a ' + label.lower() + '.')
+            add_tooltip(entry, 'Informe ou escolha a ' + label.lower() + '.')
             self.path_widgets.extend([entry,button])
         ttk.Label(folders,text='Destinatário').grid(row=2,column=0,sticky='w',padx=(0,12),pady=4)
         self.recipient_entry=ttk.Entry(folders,textvariable=self.recipient)
@@ -99,19 +176,39 @@ class Aplicativo:
         color_frame=ttk.Frame(folders)
         color_frame.grid(row=2,column=2,padx=(8,0),sticky='ew')
         ttk.Label(color_frame,text='Cor das tarjas').pack(side='left',padx=(0,6))
-        self.color_combo=ttk.Combobox(color_frame,textvariable=self.color,values=[v[0] for v in CORES.values()],state='readonly',width=16)
-        self.color_combo.pack(side='left')
+        self.color_selector=ColorSelector(color_frame,textvariable=self.color,colors=CORES,width=16)
+        self.color_selector.pack(side='left')
+        self.color_combo=self.color_selector.combo
+        add_tooltip(self.color_combo, 'Escolha a cor usada para ocultar os campos selecionados.')
+        add_tooltip(self.recipient_entry, 'O destinatário aparece no aviso e no nome do arquivo gerado.')
         self.path_widgets.append(self.recipient_entry)
-        ttk.Label(folders,text='Nome da saída: Destinatario-ddmmyy-nome-original.pdf. Até 120 caracteres no destinatário.').grid(row=3,column=1,columnspan=2,sticky='w')
-        ttk.Label(folders,text='Saída padrão: pasta de entrada (pode alterar). Somente PDFs, sem subpastas. Originais preservados.').grid(row=4,column=0,columnspan=3,sticky='w',pady=(4,0))
+        ttk.Label(folders,text='Nome da cópia',font=('TkDefaultFont',10,'bold')).grid(row=3,column=0,sticky='w',padx=(0,12),pady=(3,0))
+        ttk.Label(folders,text='Destinatario-ddmmyy-nome_original.pdf · Até 120 caracteres no destinatário.').grid(row=3,column=1,sticky='w',pady=(3,0))
+        help_config=help_button(folders, 'Pastas e destinatário',
+            'Selecione uma pasta de entrada contendo PDFs. A saída começa na mesma pasta, mas pode ser alterada.\n\n'
+            'Informe o destinatário para incluí-lo no aviso e no nome das cópias. O aplicativo preserva os originais e não sobrescreve arquivos existentes.')
+        self.config_help=help_config
+        help_config.grid(row=3,column=2,sticky='e',padx=(8,0))
+        ttk.Label(folders,text='Arquivos incluídos',font=('TkDefaultFont',10,'bold')).grid(row=4,column=0,sticky='w',padx=(0,12),pady=(6,0))
+        ttk.Label(folders,text='PDFs da pasta de entrada; subpastas não incluídas. Os originais são preservados.').grid(row=4,column=1,columnspan=2,sticky='w',pady=(6,0))
         actions = ttk.Frame(root,padding=(16,0,16,10))
         actions.grid(row=1,column=0,sticky='ew')
         self.load_button = ttk.Button(actions,text='Carregar PDFs',command=self.load)
         self.load_button.pack(side='left')
+        self._set_icon(self.load_button,'open')
+        add_tooltip(self.load_button, 'Lista os PDFs da pasta de entrada para seleção e processamento.')
         self.run_button = ttk.Button(actions,text='Processar',command=self.start,state='disabled')
         self.run_button.pack(side='left',padx=8)
+        self._set_icon(self.run_button,'process')
+        add_tooltip(self.run_button, 'Gera cópias dos documentos com os campos marcados ocultos.')
         self.stop_button = ttk.Button(actions,text='Interromper',command=self.stop,state='disabled')
         self.stop_button.pack(side='left')
+        self._set_icon(self.stop_button,'stop')
+        add_tooltip(self.stop_button, 'Interrompe o lote após concluir o arquivo atual.')
+        self.manual_button = ttk.Button(actions,text='Modo manual…',command=self.open_manual)
+        self.manual_button.pack(side='left',padx=(8,0))
+        self._set_icon(self.manual_button,'manual')
+        add_tooltip(self.manual_button, 'Abra um PDF para marcar manualmente as áreas que deseja ocultar.')
         self.progress = ttk.Progressbar(actions,mode='determinate',length=180)
         self.progress.pack(side='right',fill='x',expand=True,padx=(20,0))
         table = ttk.Frame(root,padding=(16,0))
@@ -129,16 +226,25 @@ class Aplicativo:
         self.detail_label=ttk.Label(table,textvariable=self.detail,wraplength=820)
         self.detail_label.grid(row=1,column=0,columnspan=2,sticky='w',pady=8)
         preview = ttk.Frame(root,padding=(16,0))
+        self.preview_frame = preview
         preview.grid(row=3,column=0,sticky='nsew')
         preview.columnconfigure(0,weight=0,minsize=285)
         preview.columnconfigure(1,weight=1,uniform='p')
         preview.columnconfigure(2,weight=1,uniform='p')
         preview.rowconfigure(1,weight=1)
         fields = ttk.Frame(preview,padding=(0,0,12,0))
+        self.fields_panel = fields
         fields.grid(row=0,column=0,rowspan=2,sticky='nsew')
         fields.columnconfigure(0,weight=1);fields.rowconfigure(2,weight=1)
-        ttk.Label(fields,text='Campos a ocultar',font=('TkDefaultFont',11,'bold')).grid(row=0,column=0,sticky='w')
+        field_header=ttk.Frame(fields)
+        field_header.grid(row=0,column=0,sticky='ew')
+        ttk.Label(field_header,text='Campos a ocultar',font=('TkDefaultFont',11,'bold')).pack(side='left')
         ttk.Label(fields,text='Marcado: ocultar.\nDesmarcado: manter visível.').grid(row=1,column=0,sticky='w',pady=6)
+        help_fields=help_button(field_header, 'Campos a ocultar',
+            'Selecione um documento na lista. Marque os grupos de dados que deseja ocultar; desmarque os que devem permanecer visíveis.\n\n'
+            'As escolhas são individuais para cada documento. Após processar, confira o resultado antes de compartilhar.')
+        self.fields_help=help_fields
+        help_fields.pack(side='right',padx=(4,0))
         field_canvas=tk.Canvas(fields,width=270,highlightthickness=0)
         field_canvas.grid(row=2,column=0,sticky='nsew')
         field_scroll=ttk.Scrollbar(fields,orient='vertical',command=field_canvas.yview)
@@ -157,8 +263,10 @@ class Aplicativo:
             canvas.grid(row=1,column=col,sticky='nsew',padx=(0,6) if col==1 else (6,0))
             self.canvases[side]=canvas
             canvas.bind('<Configure>',self._resized)
-        self.zoom_button = ttk.Button(root,text='Ampliar comparação…',command=lambda:self.selection(zoom=True),state='disabled')
+        self.zoom_button = ttk.Button(root,text='Conferir original e resultado…',command=lambda:self.selection(zoom=True),state='disabled')
         self.zoom_button.grid(row=4,column=0,pady=8)
+        self._set_icon(self.zoom_button,'compare')
+        add_tooltip(self.zoom_button, 'Abre as imagens em abas com rolagem para conferir os detalhes.')
         footer = ttk.Frame(root,padding=(16,0,16,12))
         footer.grid(row=5,column=0,sticky='ew')
         self.summary_label=tk.Label(footer,textvariable=self.summary,wraplength=820,anchor='w',justify='left',padx=8,pady=5)
@@ -178,8 +286,72 @@ class Aplicativo:
         ttk.Label(update_row,text='Confira o resultado antes de compartilhar. O texto não será selecionável.',wraplength=500).grid(row=0,column=0,sticky='w')
 
         self._clear_previews('Selecione um arquivo.')
+        self._show_fields()
+
+    def _set_icon(self, button, name):
+        button._icon=icon(button,name)
+        button.configure(image=button._icon,compound='left')
+
+    def _manual_executor(self):
+        if self.pool_broken:
+            self.pool.shutdown(wait=False,cancel_futures=True)
+            self.pool=ProcessPoolExecutor(max_workers=1,mp_context=multiprocessing.get_context('spawn'))
+            self.pool_broken=False
+        return self.pool
+
+    def _manual_executor_broken(self):
+        self.pool_broken=True
+
+    def _manual_export_started(self):
+        # O worker é compartilhado; nenhuma ação concorrente deve encerrar o
+        # aplicativo ou substituir controles enquanto o PDF está sendo salvo.
+        if self.manual_exporting:
+            return
+        widgets = [self.run_button, self.load_button, self.manual_button,
+                   self.color_combo, self.zoom_button, *self.path_widgets]
+        self._manual_export_states = [(widget, str(widget.cget('state'))) for widget in widgets]
+        self._manual_tree_disabled = 'disabled' in self.tree.state()
+        self.manual_exporting = True
+        for widget in widgets:
+            widget.configure(state='disabled')
+        self.tree.state(['disabled'])
+        self.update_button.configure(state='disabled')
+        self._show_fields()
+
+    def _manual_export_finished(self):
+        if not self.manual_exporting:
+            return
+        self.manual_exporting = False
+        for widget, state in self._manual_export_states:
+            widget.configure(state=state)
+        self._manual_export_states = []
+        if not self._manual_tree_disabled:
+            self.tree.state(['!disabled'])
+        if self.update_info:
+            self.update_button.configure(state='normal')
+        self._show_fields()
+
+    def open_manual(self):
+        if self.running or self.updating or self.closing or self.manual_exporting:
+            return
+        if self.manual_viewer is not None and not self.manual_viewer.closed:
+            self.manual_viewer.window.lift()
+            self.manual_viewer.window.focus_force()
+            return
+        def finished():
+            self.manual_viewer = None
+            if not self.closing:
+                self.manual_button.focus_set()
+        self.manual_viewer = VisualizadorManual(
+            self.root, self._manual_executor,
+            lambda: self.running or self.updating or self.closing,
+            finished, self._manual_executor_broken,
+            ao_iniciar_exportacao=self._manual_export_started,
+            ao_encerrar_exportacao=self._manual_export_finished,
+        )
 
     def choose(self,var):
+        if self.manual_exporting:return
         value=filedialog.askdirectory(parent=self.root,title='Escolha a pasta')
         if value:var.set(value)
 
@@ -208,6 +380,7 @@ class Aplicativo:
         self.detail.set('As pastas mudaram. Carregue a lista novamente.')
 
     def load(self):
+        if self.manual_exporting:return
         try:
             if not self.source.get().strip() or not self.target.get().strip():
                 raise Recusado('Escolha as pastas de entrada e de saída.')
@@ -252,12 +425,13 @@ class Aplicativo:
             self.preview_request=None
             self._clear_previews('Selecione um arquivo.')
             self.zoom_button.configure(state='disabled')
+            self._show_fields()
             return
         job=self.jobs[i]
         self.original_title.set('Original')
         self.detail_label.configure(foreground='#d32f2f' if job.status=='recusado' else '')
         self.detail.set(f'{Path(job.origem).name} — {LABELS[job.status]}. {job.mensagem}')
-        self.zoom_button.configure(state='normal')
+        self.zoom_button.configure(state='disabled' if self.manual_exporting else 'normal')
         self._show_fields()
         if not zoom:self._clear_previews('Carregando prévia…')
         canvas=self.canvases['antes']
@@ -268,14 +442,24 @@ class Aplicativo:
         for child in self.fields_frame.winfo_children():child.destroy()
         self.field_vars={}
         i=self.selected()
-        if i is None or not self.jobs[i].tipo:
-            ttk.Label(self.fields_frame,text=('Modelo não identificado; seleção de campos indisponível.' if i in self.detected else 'Identificando o modelo…') if i is not None else 'Selecione um documento.',wraplength=260).pack(anchor='w')
-            self.fields_summary.set('Todos os campos são ocultados por padrão.')
+        if i is None or self.jobs[i].tipo not in CAMPOS:
+            self.fields_panel.grid_remove()
+            self.preview_frame.columnconfigure(0,minsize=0)
+            if i is not None:
+                job=self.jobs[i]
+                detail=f'{Path(job.origem).name} — {LABELS[job.status]}. {job.mensagem}'
+                if i in self.detected:
+                    detail += ' Modelo não identificado; seleção de campos indisponível.'
+                elif job.status == 'aguardando':
+                    detail += ' Identificando o modelo…'
+                self.detail.set(detail)
             return
+        self.preview_frame.columnconfigure(0,minsize=285)
+        self.fields_panel.grid()
         job=self.jobs[i]
         defaults=list(CAMPOS[job.tipo])
         chosen=self.choices.get(i,defaults)
-        editable=not self.running and not self.updating and job.status=='aguardando'
+        editable=not self.running and not self.updating and not self.manual_exporting and job.status=='aguardando'
         buttons=ttk.Frame(self.fields_frame);buttons.pack(fill='x',pady=(0,8))
         for title,values in [('Marcar todos',defaults),('Desmarcar todos',[])]:
             ttk.Button(buttons,text=title,command=lambda v=values:self._set_fields(v),state='normal' if editable else 'disabled').pack(side='left',padx=(0,4))
@@ -292,10 +476,10 @@ class Aplicativo:
         if i is None or not self.jobs[i].tipo:return
         job=self.jobs[i];defaults=list(CAMPOS[job.tipo])
         hidden=len(self.choices.get(i,defaults))
-        editable=not self.running and not self.updating and job.status=='aguardando'
+        editable=not self.running and not self.updating and not self.manual_exporting and job.status=='aguardando'
         self.fields_summary.set(f'{hidden} grupo(s) a ocultar · {len(defaults)-hidden} a manter visíveis.' +
                                 ('\nNenhum marcado: arquivo será ignorado.' if not hidden else '') +
-                                ('\nPara alterar, recarregue em outro destino.' if not editable and not self.running else ''))
+                                ('\nPara alterar, recarregue em outro destino.' if not editable and not self.running and not self.manual_exporting else ''))
 
     def _set_fields(self,values):
         for key,var in self.field_vars.items():var.set(key in values)
@@ -303,7 +487,7 @@ class Aplicativo:
 
     def _fields_changed(self):
         i=self.selected()
-        if i is None or self.running or self.updating or self.jobs[i].status!='aguardando':return
+        if i is None or self.running or self.updating or self.manual_exporting or self.jobs[i].status!='aguardando':return
         self.choices[i]=[key for key,var in self.field_vars.items() if var.get()]
         self._field_summary()
         any_selected=any(self.choices.get(j,None)!=[] for j in range(len(self.jobs)))
@@ -339,8 +523,10 @@ class Aplicativo:
 
     def _zoom(self,previews,index):
         window=tk.Toplevel(self.root)
-        window.title('Conferência ampliada — '+Path(self.jobs[index].origem).name)
+        window.title('Conferir original e resultado — '+Path(self.jobs[index].origem).name)
         window.geometry('1000x780')
+        ttk.Label(window,text='Alterne entre as abas e use as barras de rolagem para conferir os detalhes.',padding=(12,8)).pack(anchor='w')
+        ttk.Button(window,text='Fechar',command=window.destroy).pack(side='bottom',pady=8)
         notebook=ttk.Notebook(window)
         notebook.pack(fill='both',expand=True)
         window.photos=[]
@@ -362,10 +548,9 @@ class Aplicativo:
                 canvas.create_image(0,0,anchor='nw',image=photo)
                 canvas.configure(scrollregion=(0,0,photo.width(),photo.height()))
             else:canvas.create_text(30,30,anchor='nw',text=previews.get(side+'_erro','Prévia indisponível.'),width=700)
-        ttk.Label(window,text='Use as abas Original / Resultado tarjado e as barras de rolagem para conferir os detalhes.').pack(pady=8)
 
     def start(self):
-        if not self.jobs or self.running or self.updating:return
+        if not self.jobs or self.running or self.updating or self.manual_exporting:return
         try:self.batch_recipient=validar_destinatario(self.recipient.get())
         except Recusado as e:
             messagebox.showerror('Destinatário necessário',str(e),parent=self.root)
@@ -381,6 +566,7 @@ class Aplicativo:
         self.batch_choices={i:list(v) for i,v in self.choices.items()}
         self.running=True;self.stopping=False;self.index=0
         self.update_button.configure(state="disabled")
+        self.manual_button.configure(state="disabled")
         self._show_fields()
         self.run_button.configure(state='disabled');self.load_button.configure(state='disabled')
         self.stop_button.configure(state='normal')
@@ -419,6 +605,7 @@ class Aplicativo:
         self.active=None
         self.stop_button.configure(state='disabled')
         self.load_button.configure(state='normal')
+        self.manual_button.configure(state='normal')
         for w in self.path_widgets:w.configure(state='normal')
         self.recipient_entry.configure(state='disabled')
         counts={s:sum(j.status==s for j in self.jobs) for s in ('concluido','recusado','falhou','cancelado','ignorado')}
@@ -462,7 +649,9 @@ class Aplicativo:
                 except Exception:self._clear_previews('Prévia indisponível. O status do PDF permanece na lista.')
         if self.closing and not self.running and self.preview_future is None:
             self.pool.shutdown(wait=False,cancel_futures=True)
-            self.root.destroy();return
+            self.root.destroy()
+            self._release_tk_resources()
+            return
         if self.preview_request and self.preview_future is None and not self.closing:
             request=self.preview_request;self.preview_request=None
             token,i,zoom,(w,h)=request
@@ -479,16 +668,17 @@ class Aplicativo:
         threading.Thread(target=work,daemon=True).start()
 
     def begin_update(self):
-        if self.running or self.updating or not self.update_info:return
+        if self.running or self.updating or self.manual_exporting or not self.update_info:return
         release=copy.deepcopy(self.update_info)
         if not messagebox.askyesno('Atualizar aplicativo?',f"Atualizar para {release['version']}?\n\nO aplicativo será encerrado para instalar a atualização. Os PDFs gerados serão preservados. As seleções atuais precisarão ser refeitas.",parent=self.root):return
-        controls=[self.run_button,self.load_button,self.color_combo,*self.path_widgets]
+        controls=[self.run_button,self.load_button,self.color_combo,self.manual_button,*self.path_widgets]
         self.update_previous_states=[(widget,str(widget.cget('state'))) for widget in controls]
         self.active_update_info=release
         self.updating=True
         self._show_fields()
         self.update_button.configure(state='disabled')
         self.run_button.configure(state='disabled');self.load_button.configure(state='disabled')
+        self.manual_button.configure(state='disabled')
         for w in self.path_widgets:w.configure(state='disabled')
         self.color_combo.configure(state='disabled')
         self.update_detail.pack(fill='x',pady=(4,0))
@@ -511,7 +701,7 @@ class Aplicativo:
                     self.update_checking=False
                     if value:
                         self.update_info=value
-                        self.update_button.configure(text='Atualizar para '+value['version'],state='disabled' if self.running or self.updating else 'normal')
+                        self.update_button.configure(text='Atualizar para '+value['version'],state='disabled' if self.running or self.updating or self.manual_exporting else 'normal')
                         self.update_button.grid(row=0,column=1,sticky='e',padx=(8,0))
                 elif event=='progress':self.update_progress.configure(value=value)
                 elif event=='failed':self.update_failed()
@@ -537,13 +727,26 @@ class Aplicativo:
         self._show_fields()
         messagebox.showerror('Atualização não concluída','Não foi possível preparar a atualização. Verifique a conexão e tente novamente. A versão atual continua disponível.',parent=self.root)
 
+    def _release_tk_resources(self):
+        """Libera objetos Tcl na thread Tk mesmo com threads do executor ativas."""
+        self.photos.clear()
+        self.field_vars.clear()
+        self.window_icon = None
+        for name in ('source','target','recipient','color','summary','detail',
+                     'fields_summary','original_title','update_status'):
+            setattr(self,name,None)
+
     def close(self):
+        if self.manual_exporting and not self.closing:
+            messagebox.showinfo('Geração em andamento','Aguarde a conclusão da geração antes de encerrar.',parent=self.root);return
         if self.updating and not self.closing:
             messagebox.showinfo('Atualização em andamento','Aguarde o fim da preparação da atualização.',parent=self.root);return
         if self.running:
             if not messagebox.askyesno('Encerrar após arquivo atual?','O arquivo em andamento será concluído. Os seguintes não serão iniciados. Deseja encerrar?',parent=self.root):return
             self.stop()
         self.closing=True
+        if self.manual_viewer is not None:
+            self.manual_viewer.close()
         self.preview_request=None
         self.preview_token+=1
         self.summary.set('Encerrando tarefas locais…')

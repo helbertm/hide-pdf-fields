@@ -2,13 +2,25 @@
 
 ## Entrada e saída
 
-O programa aceita somente PDFs com texto nativo nos dois layouts reconhecidos em A4. A nota fiscal deve ter uma página. Um pedido com várias páginas é aceito quando a primeira contém o fechamento reconhecido e a opção de ocultar observações está marcada: a saída mantém apenas a primeira página e descarta todas as seguintes. A prévia identifica a primeira página e o resultado informa a quantidade descartada. PDFs digitalizados, imagens renomeadas, recortes, rotação, senha ou posições de campos incompatíveis são recusados. Cada arquivo é independente: uma recusa não impede os demais.
+No modo automático, o programa aceita somente PDFs com texto nativo nos dois layouts reconhecidos em A4. A nota fiscal deve ter uma página. Um pedido com várias páginas é aceito quando a primeira contém o fechamento reconhecido e a opção de ocultar observações está marcada: a saída mantém apenas a primeira página e descarta todas as seguintes. A prévia identifica a primeira página e o resultado informa a quantidade descartada. PDFs digitalizados, imagens renomeadas, recortes, rotação, senha ou posições de campos incompatíveis são recusados. Cada arquivo é independente: uma recusa não impede os demais.
 
 A lista inclui arquivos `.pdf`/`.PDF` diretamente na pasta, sem subpastas. É lida uma vez por lote. A pasta de saída acompanha a entrada até ser escolhida uma pasta diferente. Nenhum arquivo existente é sobrescrito.
 
 Nome de saída: `Destinatario-ddmmyy-nome_original.pdf`. Destinatário e nome original recebem normalização: espaços viram `_`, acentos são removidos e caracteres especiais são excluídos. Exemplo: `João da Silva` e `Nota 123.pdf` tornam-se `Joao_da_Silva-051126-Nota_123.pdf` em 05/11/2026. A extensão final é `.pdf`.
 
 Se recarregar a mesma pasta, os resultados anteriores também serão listados e recusados por não corresponderem à entrada textual suportada. Não há exclusão automática por semelhança de nome.
+
+## Modo manual
+
+O modo manual permite abrir e visualizar um PDF por vez, inclusive de outros modelos, com navegação entre páginas, rolagem e escala fixa de 100%. Documentos com alguma página rotacionada e PDFs que exigem senha para abertura são recusados. A página exibida pode ser marcada como excluída do resultado e depois restaurada; a navegação mantém a numeração original e pelo menos uma página deve permanecer incluída.
+
+É possível desenhar marcações de tarja por página, nas cores Preto, Vermelho escuro, Cinza escuro ou Branco. Para corrigir uma marcação, selecione-a, apague-a e desenhe outra; não há ajuste de posição ou tamanho. As marcações de uma página são preservadas se ela for marcada para exclusão e depois restaurada.
+
+Informe o destinatário e use **Definir área do aviso** na página escolhida. Existe uma área de aviso por documento: para mudar sua posição ou tamanho, use **Remover área do aviso** e desenhe outra. A prévia usa data e hora de exemplo e indica destinatário inválido ou quando o texto completo não cabe, sem reduzir ou truncar o texto. A área pode se sobrepor a conteúdo existente; o usuário é responsável pela posição escolhida. Se a página for marcada para exclusão, a área do aviso permanece guardada, mas inativa até a página ser restaurada ou a área ser removida.
+
+Use **Gerar PDF…** para escolher onde salvar a cópia. A sugestão é a pasta do original e o nome normalizado com destinatário, data e nome original. O destino deve ser um novo arquivo PDF, diferente do original. Antes da geração, confirme a mensagem sobre os recursos que não serão preservados e os recursos detectados no documento.
+
+A saída é um novo PDF rasterizado: contém somente as páginas mantidas, com as tarjas e o aviso aplicados, sem texto selecionável. Links, formulários, anexos e recursos de acessibilidade não são preservados, e assinaturas digitais não são válidas na cópia. O original e os arquivos existentes não são sobrescritos. Confira todas as páginas na visualização do arquivo salvo antes de compartilhar. Ao fechar a conferência e voltar ao editor, as marcações e seleções permanecem disponíveis para outra geração; mudanças posteriores não alteram a cópia já salva. O programa oculta somente as áreas marcadas: verifique todas as páginas e informações antes de compartilhar.
 
 ## Campos
 
@@ -21,7 +33,7 @@ Endereço e tomador são grupos completos, incluindo seus rótulos internos. Des
 
 Sem nenhum campo selecionado, o arquivo é ignorado sem produzir PDF. Se apenas observações estiverem selecionadas e não forem encontradas, também não há saída. Escolhas ficam congeladas durante o lote. Recarregar restaura todos marcados.
 
-## Aviso com destinatário
+## Aviso com destinatário no modo automático
 
 O destinatário é obrigatório, até 120 caracteres, em uma linha. Acentos portugueses são suportados. Nome e data/hora ficam congelados no início do lote, segundo o relógio local do computador.
 
@@ -32,7 +44,7 @@ O aviso usa fonte de 7 pontos, normalmente em cinza na área branca inferior. Se
 
 O destinatário mantém acentos no documento. Se a área estiver ocupada, a geração é recusada. O texto expressa o uso pretendido; não impede tecnicamente cópia ou compartilhamento.
 
-## Remoção e conferência
+## Remoção e conferência no modo automático
 
 As tarjas substituem pixels pela cor sólida escolhida: Preto (padrão), Vermelho escuro, Cinza escuro ou Branco. Branco também remove os dados efetivamente, sem manter conteúdo por baixo. A cor é comum ao lote e fica congelada durante o processamento. Um PDF novo recebe somente a imagem já tarjada e o aviso; objetos do original, anexos, metadados e texto oculto não são copiados. A imagem incorporada é reextraída e comparada byte a byte; a tarja é verificada na cor escolhida antes de inserir o aviso; no resultado final, a única exceção é a área do aviso quando ele estiver sobre a observação. O original é preservado.
 

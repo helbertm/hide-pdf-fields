@@ -4,6 +4,11 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import pymupdf
 import tkinter
+import manual_pdf
+import ui_components
+import novidades
+import manual_interface
+import manual_export
 import interface
 import lote
 import tarjar
