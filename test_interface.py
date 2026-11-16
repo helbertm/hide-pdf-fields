@@ -44,6 +44,29 @@ class InterfaceTest(unittest.TestCase):
             time.sleep(.02)
         self.fail('Interface não atingiu o estado esperado dentro do prazo.')
 
+    def invoke_key_binding(self, window, key):
+        """Aciona o atalho real; o runner pode não ter uma janela ativa no Windows."""
+        import re
+        window.focus_force()
+        self.root.update()
+        if window.focus_get() is window:
+            window.event_generate(f'<{key}>')
+            self.root.update()
+            return
+        # Em sessão sem foco, Tk descarta eventos de teclado sintéticos. Executar
+        # o callback registrado na própria associação mantém o teste independente
+        # do gerenciador de janelas, sem afirmar que houve uma tecla física.
+        binding = window.bind(f'<{key}>')
+        match = re.search(r'\[([^\s]+) ', binding)
+        self.assertIsNotNone(match, f'Atalho {key} não está associado')
+        args = ['0'] * 19
+        args[10] = ''
+        args[12] = key
+        args[14] = str(window)
+        args[15] = '2'
+        window.tk.call(match.group(1), *args)
+        self.root.update()
+
     def test_novidades_exibidas_uma_vez_e_marcadas_apos_fechamento(self):
         from unittest.mock import patch
         from atualizacao import VERSAO
@@ -76,7 +99,7 @@ class InterfaceTest(unittest.TestCase):
              patch('interface.marcar_vista') as marked:
             self.app._mostrar_novidades();window=self.app.news_window
             self.root.update()
-            window.event_generate('<Escape>');self.root.update()
+            self.invoke_key_binding(window, 'Escape')
             marked.assert_called_once_with(VERSAO)
             self.app._mostrar_novidades();window=self.app.news_window
             window.destroy();self.root.update()
@@ -90,13 +113,24 @@ class InterfaceTest(unittest.TestCase):
              patch('interface.marcar_vista') as marked:
             self.app._mostrar_novidades();window=self.app.news_window
             self.root.update()
-            window.event_generate('<Return>');self.root.update()
+            self.invoke_key_binding(window, 'Return')
             self.assertIsNone(self.app.news_window)
             self.assertEqual(marked.call_count,1)
             self.app._mostrar_novidades();window=self.app.news_window
             self.root.tk.call(window.protocol('WM_DELETE_WINDOW'))
             self.assertIsNone(self.app.news_window)
             self.assertEqual(marked.call_count,2)
+
+    def test_novidades_atalho_em_sessao_sem_foco(self):
+        from unittest.mock import patch
+        with patch('interface.obter_novidades', return_value='Título\n\nConteúdo'), \
+             patch('interface.deve_exibir', return_value=True), \
+             patch('interface.marcar_vista') as marked:
+            self.app._mostrar_novidades();window=self.app.news_window
+            with patch.object(window, 'focus_get', return_value=None):
+                self.invoke_key_binding(window, 'Escape')
+            self.assertIsNone(self.app.news_window)
+            self.assertEqual(marked.call_count,1)
 
     def test_novidades_nao_exibidas_sem_conteudo_ou_quando_ja_vistas(self):
         from unittest.mock import patch
