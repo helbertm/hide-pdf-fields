@@ -10,9 +10,9 @@ Nome de saída: `Destinatario-ddmmyy-nome_original.pdf`. Destinatário e nome or
 
 Se recarregar a mesma pasta, os resultados anteriores também serão listados e recusados por não corresponderem à entrada textual suportada. Não há exclusão automática por semelhança de nome.
 
-## Visualizador manual em desenvolvimento
+## Modo manual
 
-A etapa experimental permite abrir e visualizar um PDF por vez, com navegação entre páginas, rolagem e escala fixa de 100%. Documentos com alguma página rotacionada e PDFs que exigem senha para abertura são recusados. A página exibida pode ser marcada como excluída do resultado e depois restaurada; a navegação mantém a numeração original e pelo menos uma página deve permanecer incluída.
+O modo manual permite abrir e visualizar um PDF por vez, inclusive de outros modelos, com navegação entre páginas, rolagem e escala fixa de 100%. Documentos com alguma página rotacionada e PDFs que exigem senha para abertura são recusados. A página exibida pode ser marcada como excluída do resultado e depois restaurada; a navegação mantém a numeração original e pelo menos uma página deve permanecer incluída.
 
 É possível desenhar marcações de tarja por página, nas cores Preto, Vermelho escuro, Cinza escuro ou Branco. Para corrigir uma marcação, selecione-a, apague-a e desenhe outra; não há ajuste de posição ou tamanho. As marcações de uma página são preservadas se ela for marcada para exclusão e depois restaurada.
 
@@ -20,7 +20,7 @@ Informe o destinatário e use **Definir área do aviso** na página escolhida. E
 
 Use **Gerar PDF…** para escolher onde salvar a cópia. A sugestão é a pasta do original e o nome normalizado com destinatário, data e nome original. O destino deve ser um novo arquivo PDF, diferente do original. Antes da geração, confirme a mensagem sobre os recursos que não serão preservados e os recursos detectados no documento.
 
-A saída é um novo PDF rasterizado: contém somente as páginas mantidas, com as tarjas e o aviso aplicados, sem texto selecionável. Links, formulários, anexos e recursos de acessibilidade não são preservados, e assinaturas digitais não são válidas na cópia. O original e os arquivos existentes não são sobrescritos. Confira todas as páginas na visualização do arquivo salvo antes de compartilhar. Ao fechar a conferência e voltar ao editor, as marcações e seleções permanecem disponíveis para outra geração; mudanças posteriores não alteram a cópia já salva. A etapa 6 e a publicação desta funcionalidade ainda não ocorreram.
+A saída é um novo PDF rasterizado: contém somente as páginas mantidas, com as tarjas e o aviso aplicados, sem texto selecionável. Links, formulários, anexos e recursos de acessibilidade não são preservados, e assinaturas digitais não são válidas na cópia. O original e os arquivos existentes não são sobrescritos. Confira todas as páginas na visualização do arquivo salvo antes de compartilhar. Ao fechar a conferência e voltar ao editor, as marcações e seleções permanecem disponíveis para outra geração; mudanças posteriores não alteram a cópia já salva. O programa oculta somente as áreas marcadas: verifique todas as páginas e informações antes de compartilhar.
 
 ## Campos
 

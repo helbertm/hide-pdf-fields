@@ -7,11 +7,9 @@ from pathlib import Path
 import sys
 import tempfile
 
-# A chave abaixo usa a versão da branch para permitir testes. Antes da próxima
-# release, troque-a pelo número efetivo dessa release junto com VERSAO.
 # Novas versões devem ter suas próprias notas; não reutilize as antigas.
 NOTAS = {
-    '1.3.2': (
+    '1.4.0': (
         'Modo manual disponível\n\n'
         'Agora você pode ocultar informações em PDFs de diferentes modelos. '
         'Abra um arquivo, marque as áreas que deseja ocultar, escolha as páginas '

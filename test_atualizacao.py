@@ -19,6 +19,18 @@ def fixture():
     return {'tag_name':'v9.0.0','assets':assets},contents
 
 class UpdateTest(unittest.TestCase):
+    def test_release_140_e_nova_para_versoes_anteriores(self):
+        data,_=fixture()
+        data['tag_name']='v1.4.0'
+        for asset in data['assets']:
+            asset['browser_download_url']=asset['browser_download_url'].replace('/v9.0.0/', '/v1.4.0/')
+        with patch.object(a.urllib.request,'urlopen',side_effect=lambda *x,**y:Response(json.dumps(data).encode())):
+            for version in ('1.1.0','1.2.0','1.3.0','1.3.1','1.3.2'):
+                with self.subTest(version=version), patch.object(a, 'VERSAO', version):
+                    self.assertEqual(a.consultar()['version'],'v1.4.0')
+            with patch.object(a, 'VERSAO', '1.4.0'):
+                self.assertIsNone(a.consultar())
+
     def test_valida_metadados_e_rejeita_duplicatas(self):
         data,_=fixture()
         with patch.object(a.urllib.request,'urlopen',side_effect=lambda *x,**y:Response(json.dumps(data).encode())):

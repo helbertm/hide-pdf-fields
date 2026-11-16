@@ -20,6 +20,9 @@ class InterfaceTest(unittest.TestCase):
         self.folder=Path(self.tmp.name)/'in';self.folder.mkdir()
         fixture(self.folder/'A.pdf');fixture(self.folder/'B.pdf','nota')
         self.root=tk.Tk();self.app=Aplicativo(self.root)
+        # Each notification test opens the window explicitly. Prevent the
+        # delayed startup callback from racing with its patched state.
+        self.root.after_cancel(self.app.news_after_id)
         self.app.source.set(str(self.folder));self.app.target.set(str(Path(self.tmp.name)/'out'))
         self.app.recipient.set('Equipe de teste')
         self.app.load()

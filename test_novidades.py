@@ -13,7 +13,13 @@ class NovidadesTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / 'estado' / 'novidades.json'
-        self.version = '1.3.2'
+        self.version = '1.4.0'
+
+    def test_versao_mais_antiga_vista_nao_oculta_novidades_atuais(self):
+        self.path.parent.mkdir()
+        self.path.write_text(json.dumps({'versoes_vistas': ['1.3.2']}))
+        self.assertIsNone(novidades.obter_novidades('1.3.2'))
+        self.assertTrue(novidades.deve_exibir(self.version, self.path))
 
     def test_sem_marcador_e_confirmacao_por_versao(self):
         self.assertTrue(novidades.deve_exibir(self.version, self.path))

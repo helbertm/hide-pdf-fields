@@ -84,7 +84,7 @@ class Aplicativo:
         if sys.platform == "win32":
             self.check_update()
         root.after(150,self.poll_update)
-        root.after(250,self._mostrar_novidades)
+        self.news_after_id = root.after(250,self._mostrar_novidades)
 
     def _mostrar_novidades(self):
         """Show this version's release notes once, after the window is ready."""

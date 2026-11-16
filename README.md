@@ -1,6 +1,6 @@
 # Ocultar Dados Sensíveis - PDF
 
-Aplicativo local para ocultar campos de dois layouts de PDF: pedido interno e nota fiscal de serviço. Tem seleção de campos por documento, comparação antes/depois, aviso com destinatário e processamento em lote. Os PDFs permanecem no computador. Pedidos multipágina com fechamento reconhecido na primeira página podem ser reduzidos a essa página quando as observações são ocultadas; as páginas seguintes são descartadas e o resultado informa a quantidade.
+Aplicativo local para ocultar informações em PDFs. O modo automático processa em lote dois layouts reconhecidos: pedido interno e nota fiscal de serviço. No modo manual, você marca as áreas de um PDF, escolhe páginas e posiciona o aviso ao destinatário. Os PDFs permanecem no computador. Pedidos multipágina com fechamento reconhecido na primeira página podem ser reduzidos a essa página quando as observações são ocultadas; as páginas seguintes são descartadas e o resultado informa a quantidade.
 
 ## Instalar no Windows
 
@@ -18,7 +18,7 @@ Para desinstalar, feche o aplicativo, remova o atalho **Ocultar Dados** e a past
 
 A versão instalada aparece no rodapé. No Windows, o aplicativo verifica a versão disponível ao iniciar e ao concluir um lote. Quando houver uma versão mais recente, o botão **Atualizar para vX.Y.Z** aparece no rodapé e fica indisponível durante o processamento. Ao confirmar, o aplicativo baixa e verifica o pacote e o instalador, avisa sobre o encerramento e abre uma janela para instalar. As seleções não são preservadas; PDFs continuam intactos. Uma falha na consulta não impede o uso. A versão 1.0.0 precisa ser atualizada manualmente para receber esse recurso.
 
-A atualização consulta somente a release pública do repositório e não envia PDFs ou dados informados ao aplicativo. Os hashes são obtidos da própria release: eles verificam integridade, mas não constituem assinatura independente do publicador.
+Na primeira abertura de uma versão com novidades, o aplicativo apresenta um resumo. Após fechado, ele não se repete para aquela versão. A atualização consulta somente a release pública do repositório e não envia PDFs ou dados informados ao aplicativo. Os hashes são obtidos da própria release: eles verificam integridade, mas não constituem assinatura independente do publicador.
 
 ## Usar
 
@@ -30,13 +30,13 @@ A atualização consulta somente a release pública do repositório e não envia
 
 Todos os campos começam marcados. ZIP, documentos de texto e imagens não são aceitos. Arquivos existentes não são sobrescritos. Veja [uso, limites e campos](USO.md).
 
-## Visualizador manual em desenvolvimento
+## Modo manual
 
-Esta linha de desenvolvimento contém um visualizador manual experimental: é possível abrir um PDF por vez, navegar em visualização fixa de 100%, marcar páginas para exclusão do resultado ou restaurá-las e desenhar marcações de tarja em cada página. Pelo menos uma página deve permanecer marcada para inclusão. As quatro cores disponíveis são Preto, Vermelho escuro, Cinza escuro e Branco. Uma marcação pode ser selecionada e apagada; para corrigi-la, apague-a e desenhe outra. As marcações são preservadas ao excluir e restaurar uma página.
+Abra **Modo manual…** para trabalhar com um PDF por vez, inclusive de outros modelos. É possível navegar em visualização fixa de 100%, marcar páginas para exclusão do resultado ou restaurá-las e desenhar marcações de tarja em cada página. Pelo menos uma página deve permanecer marcada para inclusão. As quatro cores disponíveis são Preto, Vermelho escuro, Cinza escuro e Branco. Uma marcação pode ser selecionada e apagada; para corrigi-la, apague-a e desenhe outra. As marcações são preservadas ao excluir e restaurar uma página.
 
 Também é possível informar o destinatário e definir ou remover uma área de aviso em uma página escolhida, com prévia e indicação se o texto não couber. Há uma área de aviso por documento. A posição escolhida pode se sobrepor ao conteúdo; a escolha é de responsabilidade do usuário. Se a página do aviso for marcada para exclusão, a posição fica inativa e é preservada caso a página seja restaurada.
 
-O botão **Gerar PDF…** cria uma cópia rasterizada com as páginas mantidas, as tarjas e o aviso, sem texto selecionável. A janela sugere salvar na pasta do original, com nome derivado do destinatário e da data; escolha outro destino se preferir. Antes de gerar, confirme a perda de recursos informada na tela. O original e arquivos existentes não são sobrescritos. Após a geração, confira o arquivo salvo; ao voltar ao editor, suas marcações e escolhas permanecem para uma nova geração. Páginas com rotação configurada são recusadas. Esta funcionalidade ainda está em desenvolvimento; a etapa 6 e sua publicação ainda não ocorreram.
+O botão **Gerar PDF…** cria uma cópia rasterizada com as páginas mantidas, as tarjas e o aviso, sem texto selecionável. A janela sugere salvar na pasta do original, com nome derivado do destinatário e da data; escolha outro destino se preferir. Antes de gerar, confirme a perda de recursos informada na tela. O original e arquivos existentes não são sobrescritos. Após a geração, confira o arquivo salvo; ao voltar ao editor, suas marcações e escolhas permanecem para uma nova geração. PDFs que exigem senha para abertura e documentos com páginas rotacionadas são recusados. Confira todas as páginas antes de compartilhar: o programa oculta somente as áreas que você marcar.
 
 ## Desenvolvimento e verificações
 
@@ -46,7 +46,7 @@ Python 3.14 x64 é o runtime de distribuição Windows. Em um ambiente virtual:
 python -m pip install --require-hashes --only-binary=:all: -r requirements-win.lock
 python scripts/verify.py
 $env:TARJA_GUI_TESTS = '1'
-python -m unittest test_interface -v
+python -m unittest test_interface test_manual_interface test_ui_components -v
 python scripts/build_release.py
 ```
 
